@@ -14,12 +14,12 @@ import type { HeroImageDTO, HeroImageSetDTO, HeroImageSetSummaryDTO } from "@/fe
 export async function listHeroImageSets(): Promise<HeroImageSetSummaryDTO[]> {
   const sets = await db.heroImageSet.findMany({
     orderBy: { updatedAt: "desc" },
-    include: { brief: { select: { title: true } } },
+    include: { brief: { select: { title: true } }, project: { select: { name: true } } },
   });
   return sets.map((set) => ({
     id: set.id,
     title: set.title,
-    briefTitle: set.brief.title,
+    sourceTitle: set.project?.name ?? set.brief?.title ?? "Standalone",
     updatedAt: set.updatedAt.toISOString(),
   }));
 }
@@ -29,6 +29,7 @@ export async function getHeroImageSet(id: string): Promise<HeroImageSetDTO | nul
     where: { id },
     include: {
       brief: { select: { title: true } },
+      project: { select: { name: true } },
       images: { include: { treatments: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } },
     },
   });
@@ -39,8 +40,9 @@ export async function getHeroImageSet(id: string): Promise<HeroImageSetDTO | nul
   return {
     id: set.id,
     title: set.title,
-    briefId: set.briefId,
-    briefTitle: set.brief.title,
+    projectId: set.projectId,
+    subjectPrompt: set.subjectPrompt,
+    sourceTitle: set.project?.name ?? set.brief?.title ?? "Standalone",
     updatedAt: set.updatedAt.toISOString(),
     images: bases.map(serializeImage),
   };

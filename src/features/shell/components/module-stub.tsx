@@ -1,5 +1,4 @@
 import { Reveal } from "@/components/shared/reveal";
-import { EmptyState } from "@/components/shared/empty-state";
 import { STUDIO_MODULES } from "@/features/shell/modules";
 
 export function ModuleStub({ id }: { id: string }) {
@@ -7,12 +6,12 @@ export function ModuleStub({ id }: { id: string }) {
   if (!studioModule) return null;
 
   return (
-    <Reveal className="flex h-full flex-col">
-      <EmptyState
-        icon={studioModule.icon}
-        title={studioModule.label}
-        description={`${studioModule.description} Coming in Phase ${studioModule.phase}.`}
-      />
+    <Reveal className="mx-auto flex h-full max-w-lg flex-col justify-center px-8 py-16 text-center">
+      <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        Phase {studioModule.phase} · upcoming
+      </p>
+      <h1 className="font-heading text-2xl tracking-tight text-foreground">{studioModule.label}</h1>
+      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{studioModule.description}</p>
     </Reveal>
   );
 }

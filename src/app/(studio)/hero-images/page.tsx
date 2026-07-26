@@ -47,7 +47,7 @@ export default function HeroImagesPage() {
             className="flex flex-col gap-1 rounded-lg border border-border p-4 transition-colors duration-fast hover:border-brand/40"
           >
             <span className="text-sm font-medium text-foreground">{set.title}</span>
-            <span className="text-xs text-muted-foreground">From brief: {set.briefTitle}</span>
+            <span className="text-xs text-muted-foreground">From: {set.sourceTitle}</span>
           </Link>
         ))}
       </div>

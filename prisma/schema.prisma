@@ -55,6 +55,7 @@ model InspirationItem {
   tags         Tag[]
   analysis     InspirationAnalysis?
   promptBriefs PromptBrief[]
+  projects     Project[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 }
@@ -130,15 +131,9 @@ model PromptBrief {
   typographyStyle String?
   outputPrompt    String?
   references      InspirationItem[]
-  variantSets     VariantSet[]
   heroImageSets   HeroImageSet[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-}
-
-enum VariantKind {
-  DIRECTION
-  REFINEMENT
 }
 
 enum VariantStatus {
@@ -148,31 +143,57 @@ enum VariantStatus {
   ERROR
 }
 
-model VariantSet {
-  id        String   @id @default(cuid())
-  briefId   String
-  brief     PromptBrief @relation(fields: [briefId], references: [id])
-  title     String
-  variants  Variant[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+/** Which design rulebook a variant was generated under. */
+enum DesignLane {
+  IMPECCABLE
+  TASTE_SKILL
+}
+
+/** The spine of the guided flow: one site being designed. */
+model Project {
+  id            String   @id @default(cuid())
+  name          String
+  serviceType   String?
+  description   String?
+  audience      String?
+  designNotes   String?
+  references    InspirationItem[]
+  rounds        VariantRound[]
+  heroImageSets HeroImageSet[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/** One narrowing pass. Round 1 is the 5+5 two-lane comparison; later rounds
+ *  refine whichever variant was picked from the previous round. */
+model VariantRound {
+  id              String    @id @default(cuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  roundNumber     Int
+  parentVariantId String?
+  parentVariant   Variant?  @relation("RoundParent", fields: [parentVariantId], references: [id])
+  variants        Variant[]
+  createdAt       DateTime  @default(now())
 }
 
 model Variant {
-  id           String       @id @default(cuid())
-  variantSetId String
-  variantSet   VariantSet   @relation(fields: [variantSetId], references: [id], onDelete: Cascade)
-  parentId     String?
-  parent       Variant?     @relation("VariantRefinements", fields: [parentId], references: [id])
-  refinements  Variant[]    @relation("VariantRefinements")
-  kind         VariantKind
+  id           String        @id @default(cuid())
+  roundId      String
+  round        VariantRound  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  lane         DesignLane
   label        String
   styleName    String
-  html         String?
+  rationale    String?
+  designTokens String?
+  previewHtml  String?
+  fullSiteHtml String?
   status       VariantStatus @default(PENDING)
   error        String?
+  selected     Boolean       @default(false)
   favorite     Boolean       @default(false)
   order        Int           @default(0)
+  childRounds  VariantRound[] @relation("RoundParent")
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 }
@@ -183,13 +204,17 @@ enum HeroImageKind {
 }
 
 model HeroImageSet {
-  id        String      @id @default(cuid())
-  briefId   String
-  brief     PromptBrief @relation(fields: [briefId], references: [id])
-  title     String
-  images    HeroImage[]
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id            String       @id @default(cuid())
+  briefId       String?
+  brief         PromptBrief? @relation(fields: [briefId], references: [id])
+  projectId     String?
+  project       Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title         String
+  /** The user's own answer to "what do you want to generate?" */
+  subjectPrompt String?
+  images        HeroImage[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 }
 
 model HeroImage {

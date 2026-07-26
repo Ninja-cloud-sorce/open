@@ -19,8 +19,9 @@ export interface HeroImageDTO {
 export interface HeroImageSetDTO {
   id: string;
   title: string;
-  briefId: string;
-  briefTitle: string;
+  projectId: string | null;
+  subjectPrompt: string | null;
+  sourceTitle: string;
   images: HeroImageDTO[];
   updatedAt: string;
 }
@@ -28,6 +29,6 @@ export interface HeroImageSetDTO {
 export interface HeroImageSetSummaryDTO {
   id: string;
   title: string;
-  briefTitle: string;
+  sourceTitle: string;
   updatedAt: string;
 }

@@ -1,244 +1,400 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { GoogleGenAI, Type } from "@google/genai";
 import { db } from "@/lib/db";
-import type { PromptBriefFields } from "@/features/prompts/types";
+import type { DesignLane } from "@/generated/prisma/enums";
 
-const MODEL = "gemini-flash-latest";
+/** Authoring models in descending capability. Free-tier keys have per-model quota
+ *  that varies (Pro tiers often sit at limit: 0), so we fall through on 429/404
+ *  rather than hard-failing the whole round. */
+const AUTHOR_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
+const FAST_MODEL = "gemini-flash-latest";
 
-export const DIRECTIONS: { key: string; name: string; guidance: string }[] = [
-  {
-    key: "print-tech",
-    name: "Print-Tech",
-    guidance:
-      "Technical print aesthetic: light paper background, sharp square corners, uppercase mono labels with wide tracking, a faint crosshair grid, a single bold registration-red or safety-orange accent, spec-sheet style meta lines with pipe separators.",
-  },
-  {
-    key: "data-texture",
-    name: "Data Texture",
-    guidance:
-      "Dark navy/graphite background, technical and dense, mono headline font, an electric-blue or amber accent, a data/grid texture motif in the background, bracket-style meta labels like [ 01 ].",
-  },
-  {
-    key: "vast-quiet",
-    name: "Vast Quiet",
-    guidance:
-      "Extremely minimal: near-white background, huge generous whitespace, thin-weight large sans headline, one quiet restrained CTA, no decorative clutter, no visible grid or texture.",
-  },
-  {
-    key: "dither-mono",
-    name: "Dither Mono",
-    guidance:
-      "Near-black background, warm single accent color (orange or amber), a subtle dither/halftone dot texture, serif italic used only for one emphasized word inside an otherwise sans headline, editorial tone.",
-  },
-  {
-    key: "classical-remix",
-    name: "Classical Remix",
-    guidance:
-      "Cream/paper background, real serif display typography, centered symmetric composition, thin ornamental rules above and below the headline, small-caps eyebrow label, editorial/heritage tone.",
-  },
-];
+/** Statically scoped so bundler file-tracing stays confined to this subfolder. */
+const SKILLS_DIR = path.join(process.cwd(), ".agents", "skills");
 
-const VARIANT_ITEM_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    label: { type: Type.STRING },
-    styleName: { type: Type.STRING },
-    html: { type: Type.STRING },
-  },
-  required: ["label", "styleName", "html"],
+const SKILL_FILES: Record<DesignLane, string[]> = {
+  IMPECCABLE: ["impeccable/reference/craft-floor.md", "impeccable/reference/new-work.md"],
+  TASTE_SKILL: ["design-taste-frontend/SKILL.md"],
 };
 
-const HTML_INSTRUCTIONS = `Each "html" value must be a COMPLETE, self-contained HTML document (starting with <!DOCTYPE html>) with all CSS inline in a single <style> tag in <head>. No external stylesheets, no build tooling, no JS frameworks. Scope the page to a single hero section only: a small nav row (wordmark + one CTA), a headline, one line of supporting copy, a primary CTA (and optionally a secondary link), matching the brief. Do not build a full multi-section marketing page. Use only system font stacks or Google Fonts <link> tags (no npm packages). The page must look genuinely different from the other directions in this batch — vary layout, palette, and type per its named style.`;
+const LANE_LABEL: Record<DesignLane, string> = {
+  IMPECCABLE: "Impeccable",
+  TASTE_SKILL: "Taste-Skill V2",
+};
 
-function briefToText(brief: {
-  outputPrompt: string | null;
-  aesthetic: string | null;
-  intent: string | null;
-  audience: string | null;
-  constraints: string | null;
-  guardRails: string | null;
-  negativePrompt: string | null;
-  componentStyle: string | null;
-  motionStyle: string | null;
-  typographyStyle: string | null;
-}) {
-  if (brief.outputPrompt?.trim()) return brief.outputPrompt;
-  const fields: [string, PromptBriefFields[keyof PromptBriefFields]][] = [
-    ["Aesthetic", brief.aesthetic],
-    ["Intent", brief.intent],
-    ["Audience", brief.audience],
-    ["Constraints", brief.constraints],
-    ["Guard Rails", brief.guardRails],
-    ["Negative Prompt", brief.negativePrompt],
-    ["Component Style", brief.componentStyle],
-    ["Motion Style", brief.motionStyle],
-    ["Typography Style", brief.typographyStyle],
-  ];
-  return fields
-    .filter(([, value]) => value?.trim())
-    .map(([label, value]) => `${label}: ${value}`)
-    .join("\n");
+/** Cap per lane so the rulebooks inform the prompt without dominating the context window. */
+const RULES_CHAR_BUDGET = 14000;
+
+const rulesCache = new Map<DesignLane, string>();
+
+/** Loads the real skill rulebooks shipped in this repo, so each lane generates
+ *  under genuinely different design guidance rather than invented pseudo-rules. */
+async function loadLaneRules(lane: DesignLane): Promise<string> {
+  const cached = rulesCache.get(lane);
+  if (cached) return cached;
+
+  const parts: string[] = [];
+  for (const relative of SKILL_FILES[lane]) {
+    try {
+      const contents = await readFile(path.join(SKILLS_DIR, relative), "utf8");
+      parts.push(contents);
+    } catch {
+      // A missing skill file degrades guidance but must not break generation.
+    }
+  }
+
+  const joined = parts.join("\n\n---\n\n").slice(0, RULES_CHAR_BUDGET);
+  rulesCache.set(lane, joined);
+  return joined;
 }
 
-/** Generates all 5 top-level direction variants for a set in one batched Gemini call. */
-export async function generateDirections(variantSetId: string) {
-  const variants = await db.variant.findMany({ where: { variantSetId, kind: "DIRECTION" }, orderBy: { order: "asc" } });
-  const variantSet = await db.variantSet.findUniqueOrThrow({ where: { id: variantSetId }, include: { brief: true } });
+export interface ProjectContext {
+  name: string;
+  serviceType: string | null;
+  description: string | null;
+  audience: string | null;
+  designNotes: string | null;
+  references: { title: string | null; analysisSummary: string | null }[];
+}
+
+function projectBrief(project: ProjectContext) {
+  const lines = [
+    `Project: ${project.name}`,
+    project.serviceType && `Service type: ${project.serviceType}`,
+    project.description && `What it does: ${project.description}`,
+    project.audience && `Audience: ${project.audience}`,
+    project.designNotes && `Design direction the user wants: ${project.designNotes}`,
+  ].filter(Boolean);
+
+  const refs = project.references
+    .map((r) => [r.title, r.analysisSummary].filter(Boolean).join(" — "))
+    .filter(Boolean);
+  if (refs.length) lines.push(`Inspiration references:\n${refs.map((r) => `- ${r}`).join("\n")}`);
+
+  return lines.join("\n");
+}
+
+const TOKENS_SHAPE = `"designTokens" is a JSON string with this exact shape:
+{"fontDisplay":"<google font family>","fontBody":"<google font family>","fontMono":"<google font family or empty>","scaleRatio":"<e.g. 1.25>","colorBg":"#hex","colorSurface":"#hex","colorText":"#hex","colorMuted":"#hex","colorAccent":"#hex","colorAccentText":"#hex","radius":"<e.g. 0px | 8px | 999px>","spacingUnit":"<e.g. 8px>","borderStyle":"<e.g. 1px hairline | none | 2px solid>","motion":"<e.g. restrained fades | kinetic reveals | none>","texture":"<e.g. none | paper grain | dot grid>"}`;
+
+const SPEC_SCHEMA = {
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      styleName: { type: Type.STRING },
+      rationale: { type: Type.STRING },
+      designTokens: { type: Type.STRING },
+    },
+    required: ["styleName", "rationale", "designTokens"],
+  },
+};
+
+interface SpecItem {
+  styleName: string;
+  rationale: string;
+  designTokens: string;
+}
+
+function ai() {
+  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+}
+
+/** Availability, not capability, is the binding constraint on free keys — walk the
+ *  model list until one answers, and only surface an error if all of them refuse. */
+async function authorContent(params: {
+  contents: string;
+  config?: Record<string, unknown>;
+}): Promise<string> {
+  let lastError: unknown;
+  for (const model of AUTHOR_MODELS) {
+    try {
+      const response = await ai().models.generateContent({
+        model,
+        contents: params.contents,
+        ...(params.config ? { config: params.config } : {}),
+      });
+      const text = response.text ?? "";
+      if (text.trim()) return text;
+    } catch (error) {
+      lastError = error;
+      const message = String((error as Error)?.message ?? error);
+      // Quota / availability problems are worth retrying on another model;
+      // anything else is a real failure and should surface immediately.
+      if (!message.includes("429") && !message.includes("404")) throw error;
+    }
+  }
+  throw lastError ?? new Error("No available model returned a response.");
+}
+
+/** Stage A — five distinct design systems for one lane. Cheap, text-only. */
+async function generateLaneSpecs(
+  lane: DesignLane,
+  project: ProjectContext,
+  parentTokens?: string | null,
+  parentStyle?: string | null
+): Promise<SpecItem[]> {
+  const rules = await loadLaneRules(lane);
+
+  const refining = parentTokens
+    ? `\n\nThis is a REFINEMENT round. The user picked the direction "${parentStyle}" with these locked tokens:\n${parentTokens}\n\nAll 5 new options must keep that same visual identity — same font families, same palette, same overall voice. Vary only composition, hierarchy, density, and structural treatment. Do NOT introduce new fonts or new hues.`
+    : `\n\nThese 5 must be genuinely different from each other — different type pairings, different palettes, different structural personalities. Not 5 shades of one idea.`;
+
+  const text = await authorContent({
+    contents: `You are a design director working under the following rulebook. Follow it closely — it is the house style you are accountable to.
+
+=== RULEBOOK: ${LANE_LABEL[lane]} ===
+${rules}
+=== END RULEBOOK ===
+
+Brief:
+${projectBrief(project)}${refining}
+
+Produce exactly 5 design directions. For each: a short "styleName" (1-3 words), a one-sentence "rationale" tying it to the brief, and "designTokens".
+
+${TOKENS_SHAPE}`,
+    config: { responseMimeType: "application/json", responseSchema: SPEC_SCHEMA },
+  });
+
+  const items: SpecItem[] = JSON.parse(text || "[]");
+  return items.slice(0, 5);
+}
+
+const SITE_RULES = `Output a COMPLETE self-contained HTML document starting with <!DOCTYPE html>.
+- All CSS in one <style> tag in <head>. No external CSS frameworks.
+- Load fonts via a single Google Fonts <link>.
+- Bind every color, font, and radius to the supplied design tokens as CSS custom properties on :root, then use var() everywhere. This is what keeps the site visually consistent.
+- Real, specific copy for this business — never lorem ipsum, never "Your Company".
+- No placeholder image services and no <img> to external hosts; use CSS gradients, shapes, or typography for visual interest.
+- Semantic HTML, responsive down to 375px, accessible contrast.`;
+
+/** Stage B (preview) — one representative screen per variant. */
+async function generatePreview(lane: DesignLane, project: ProjectContext, spec: SpecItem): Promise<string> {
+  const rules = await loadLaneRules(lane);
+  const text = await authorContent({
+    contents: `You are a design director working under this rulebook:
+
+=== RULEBOOK: ${LANE_LABEL[lane]} ===
+${rules}
+=== END RULEBOOK ===
+
+Brief:
+${projectBrief(project)}
+
+Design direction: "${spec.styleName}" — ${spec.rationale}
+Design tokens (bind these exactly):
+${spec.designTokens}
+
+Build the landing page's opening screen: header/nav, hero (headline, supporting line, primary CTA), and one supporting band beneath it. This is a preview used to judge the direction, so make the visual identity unmistakable.
+
+${SITE_RULES}`,
+  });
+  return stripFences(text);
+}
+
+const SECTIONS = [
+  "sticky header with nav and a primary CTA",
+  "hero with headline, supporting paragraph, and two CTAs",
+  "services or features section (3-6 items, laid out per the design direction)",
+  "a proof section appropriate to this business (testimonials, credentials, stats, or case highlights)",
+  "pricing or engagement/booking section if it fits the business, otherwise a detailed 'how it works' section",
+  "FAQ section (4-6 questions)",
+  "closing CTA band",
+  "footer with navigation columns, contact details, and legal line",
+];
+
+/** Stage B (full) — the entire multi-section site against locked tokens. */
+export async function expandToFullSite(variantId: string) {
+  const variant = await db.variant.findUniqueOrThrow({
+    where: { id: variantId },
+    include: { round: { include: { project: { include: { references: { include: { analysis: true } } } } } } },
+  });
 
   if (!process.env.GEMINI_API_KEY) {
-    await db.variant.updateMany({
-      where: { variantSetId, kind: "DIRECTION" },
-      data: { status: "ERROR", error: "GEMINI_API_KEY is not set. Add it to .env to generate variants." },
+    await db.variant.update({
+      where: { id: variantId },
+      data: { status: "ERROR", error: "GEMINI_API_KEY is not set. Add it to .env to generate." },
     });
     return;
   }
 
-  await db.variant.updateMany({ where: { variantSetId, kind: "DIRECTION" }, data: { status: "GENERATING" } });
+  await db.variant.update({ where: { id: variantId }, data: { status: "GENERATING", error: null } });
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const briefText = briefToText(variantSet.brief);
+    const project = toContext(variant.round.project);
+    const rules = await loadLaneRules(variant.lane);
 
-    const prompt = `You are a senior design director producing 5 genuinely distinct landing-page hero directions for one brief.
+    const draftText = await authorContent({
+      contents: `You are a design director working under this rulebook:
+
+=== RULEBOOK: ${LANE_LABEL[variant.lane]} ===
+${rules}
+=== END RULEBOOK ===
 
 Brief:
-${briefText || "(no brief details provided — use good generic SaaS landing page judgment)"}
+${projectBrief(project)}
 
-Produce exactly 5 variants, one per named direction below, in this exact order:
-${DIRECTIONS.map((d, i) => `${i + 1}. "${d.name}" — ${d.guidance}`).join("\n")}
+Design direction: "${variant.styleName}" — ${variant.rationale ?? ""}
+Design tokens (bind these exactly — every section must share them):
+${variant.designTokens}
 
-For each, set "label" to "V${1}".."V5" matching its position, "styleName" to the direction's name, and "html" to the generated page.
+Build the COMPLETE marketing site as one long page containing all of these sections in order:
+${SECTIONS.map((s, i) => `${i + 1}. ${s}`).join("\n")}
 
-${HTML_INSTRUCTIONS}`;
+Every section must feel like part of the same designed system: consistent type scale, spacing rhythm, and color roles throughout. Vary section layouts so the page has rhythm — do not stack eight identical centered blocks.
 
-    const response = await ai.models.generateContent({
-      model: MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: { type: Type.ARRAY, items: VARIANT_ITEM_SCHEMA },
-      },
+${SITE_RULES}`,
     });
 
-    const results: { label: string; styleName: string; html: string }[] = JSON.parse(response.text ?? "[]");
+    const html = stripFences(draftText);
 
-    await Promise.all(
-      variants.map((variant, index) => {
-        const result = results[index];
-        if (!result) {
-          return db.variant.update({
-            where: { id: variant.id },
-            data: { status: "ERROR", error: "Model did not return a variant at this position." },
-          });
-        }
-        return db.variant.update({
-          where: { id: variant.id },
-          data: {
-            status: "DONE",
-            error: null,
-            label: result.label || variant.label,
-            styleName: result.styleName || variant.styleName,
-            html: result.html,
-          },
-        });
-      })
-    );
+    // Self-critique pass — the single biggest quality lever available without
+    // an agentic screenshot loop.
+    const revisedText = await authorContent({
+      contents: `Review this generated site against the rulebook below and return an IMPROVED version.
+
+=== RULEBOOK: ${LANE_LABEL[variant.lane]} ===
+${rules}
+=== END RULEBOOK ===
+
+Check specifically: typographic hierarchy and scale, spacing rhythm, section layout variety, copy quality (no filler, no AI cliché), color usage against the locked tokens, responsive behavior, and contrast/accessibility.
+
+Return ONLY the corrected complete HTML document — no commentary.
+
+${html}`,
+    });
+
+    const finalHtml = stripFences(revisedText) || html;
+
+    await db.variant.update({
+      where: { id: variantId },
+      data: { status: "DONE", error: null, fullSiteHtml: finalHtml },
+    });
   } catch (error) {
-    await db.variant.updateMany({
-      where: { variantSetId, kind: "DIRECTION" },
+    await db.variant.update({
+      where: { id: variantId },
       data: { status: "ERROR", error: error instanceof Error ? error.message : "Generation failed." },
     });
   }
 }
 
-/** Generates 3 layout refinements of one chosen direction in a single batched Gemini call. */
-export async function generateRefinements(directionVariantId: string) {
-  const parent = await db.variant.findUniqueOrThrow({
-    where: { id: directionVariantId },
-    include: { variantSet: { include: { brief: true } } },
+/** Generates every variant in a round: both lanes' specs, then previews. */
+export async function generateRound(roundId: string) {
+  const round = await db.variantRound.findUniqueOrThrow({
+    where: { id: roundId },
+    include: {
+      project: { include: { references: { include: { analysis: true } } } },
+      parentVariant: true,
+    },
   });
 
-  const labels = ["A", "B", "C"].map((suffix) => `${parent.label}${suffix}`);
-  const hasKey = Boolean(process.env.GEMINI_API_KEY);
-
-  // Reuse existing refinement rows on retry rather than creating duplicates
-  // alongside a previously-failed batch.
-  const existing = await db.variant.findMany({ where: { parentId: parent.id }, orderBy: { order: "asc" } });
-
-  const placeholders = await Promise.all(
-    labels.map((label, index) => {
-      const data = {
-        status: hasKey ? ("GENERATING" as const) : ("ERROR" as const),
-        error: hasKey ? null : "GEMINI_API_KEY is not set. Add it to .env to generate variants.",
-      };
-      return existing[index]
-        ? db.variant.update({ where: { id: existing[index].id }, data })
-        : db.variant.create({
-            data: {
-              variantSetId: parent.variantSetId,
-              parentId: parent.id,
-              kind: "REFINEMENT",
-              label,
-              styleName: "Refining…",
-              order: index,
-              ...data,
-            },
-          });
-    })
-  );
-
-  if (!process.env.GEMINI_API_KEY) return placeholders;
-
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const briefText = briefToText(parent.variantSet.brief);
-
-    const prompt = `You are refining ONE chosen design direction for a landing-page hero. Do not redesign it — the visitor must recognize it as the same brand.
-
-Brief:
-${briefText || "(no brief details provided)"}
-
-Locked identity — direction "${parent.styleName}":
-${DIRECTIONS.find((d) => d.name === parent.styleName)?.guidance ?? parent.styleName}
-
-Here is the current HTML for this direction, treat its palette, typography, and tone as fixed:
-${parent.html ?? "(no existing HTML — invent one consistent with the locked identity above)"}
-
-Produce exactly 3 refinements labeled "${labels[0]}", "${labels[1]}", "${labels[2]}", each varying a DIFFERENT layout axis (e.g. one changes hierarchy, one changes composition topology — stacked/split/asymmetric, one changes density) while preserving the exact same palette, type choices, and voice. "styleName" should be a short 1-3 word description of what changed (e.g. "Split layout", "Centered", "Denser").
-
-${HTML_INSTRUCTIONS}`;
-
-    const response = await ai.models.generateContent({
-      model: MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: { type: Type.ARRAY, items: VARIANT_ITEM_SCHEMA },
-      },
-    });
-
-    const results: { label: string; styleName: string; html: string }[] = JSON.parse(response.text ?? "[]");
-
-    await Promise.all(
-      placeholders.map((placeholder, index) => {
-        const result = results[index];
-        if (!result) {
-          return db.variant.update({
-            where: { id: placeholder.id },
-            data: { status: "ERROR", error: "Model did not return a refinement at this position." },
-          });
-        }
-        return db.variant.update({
-          where: { id: placeholder.id },
-          data: { status: "DONE", error: null, styleName: result.styleName || placeholder.label, html: result.html },
-        });
-      })
-    );
-  } catch (error) {
+  if (!process.env.GEMINI_API_KEY) {
     await db.variant.updateMany({
-      where: { id: { in: placeholders.map((p) => p.id) } },
-      data: { status: "ERROR", error: error instanceof Error ? error.message : "Generation failed." },
+      where: { roundId },
+      data: { status: "ERROR", error: "GEMINI_API_KEY is not set. Add it to .env to generate." },
     });
+    return;
   }
 
-  return db.variant.findMany({ where: { parentId: parent.id }, orderBy: { order: "asc" } });
+  const project = toContext(round.project);
+  const parent = round.parentVariant;
+
+  // A refinement round stays in the lane the picked variant came from.
+  const lanes: DesignLane[] = parent ? [parent.lane] : ["IMPECCABLE", "TASTE_SKILL"];
+
+  await db.variant.updateMany({ where: { roundId }, data: { status: "GENERATING", error: null } });
+
+  await Promise.all(
+    lanes.map(async (lane) => {
+      const variants = await db.variant.findMany({
+        where: { roundId, lane },
+        orderBy: { order: "asc" },
+      });
+
+      let specs: SpecItem[] = [];
+      try {
+        specs = await generateLaneSpecs(lane, project, parent?.designTokens, parent?.styleName);
+      } catch (error) {
+        await db.variant.updateMany({
+          where: { roundId, lane },
+          data: { status: "ERROR", error: error instanceof Error ? error.message : "Spec generation failed." },
+        });
+        return;
+      }
+
+      await Promise.all(
+        variants.map(async (variant, index) => {
+          const spec = specs[index];
+          if (!spec) {
+            await db.variant.update({
+              where: { id: variant.id },
+              data: { status: "ERROR", error: "Model returned no direction at this position." },
+            });
+            return;
+          }
+
+          await db.variant.update({
+            where: { id: variant.id },
+            data: { styleName: spec.styleName, rationale: spec.rationale, designTokens: spec.designTokens },
+          });
+
+          try {
+            const previewHtml = await generatePreview(lane, project, spec);
+            await db.variant.update({
+              where: { id: variant.id },
+              data: { status: "DONE", error: null, previewHtml },
+            });
+          } catch (error) {
+            await db.variant.update({
+              where: { id: variant.id },
+              data: { status: "ERROR", error: error instanceof Error ? error.message : "Preview generation failed." },
+            });
+          }
+        })
+      );
+    })
+  );
+}
+
+/** Suggests a starting subject line for hero image generation from project context. */
+export async function suggestHeroSubject(project: ProjectContext): Promise<string> {
+  if (!process.env.GEMINI_API_KEY) return "";
+  try {
+    const response = await ai().models.generateContent({
+      model: FAST_MODEL,
+      contents: `In one short sentence, describe the ideal hero photograph for this business. Subject and mood only, no camera jargon.\n\n${projectBrief(project)}`,
+    });
+    return (response.text ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function toContext(project: {
+  name: string;
+  serviceType: string | null;
+  description: string | null;
+  audience: string | null;
+  designNotes: string | null;
+  references: { title: string | null; analysis: { primaryStyle: string | null; aiNotes: string | null } | null }[];
+}): ProjectContext {
+  return {
+    name: project.name,
+    serviceType: project.serviceType,
+    description: project.description,
+    audience: project.audience,
+    designNotes: project.designNotes,
+    references: project.references.map((r) => ({
+      title: r.title,
+      analysisSummary: [r.analysis?.primaryStyle, r.analysis?.aiNotes].filter(Boolean).join(": ") || null,
+    })),
+  };
+}
+
+/** Models often wrap HTML in markdown fences despite instructions. */
+function stripFences(text: string) {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^```(?:html)?\s*\n([\s\S]*?)\n```$/);
+  return (match ? match[1] : trimmed).trim();
 }

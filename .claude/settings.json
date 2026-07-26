@@ -5,7 +5,8 @@
       "Bash(npm run *)",
       "Bash(node ./drive-tmp.mjs)",
       "Bash(git add *)",
-      "Bash(npm approve-scripts *)"
+      "Bash(npm approve-scripts *)",
+      "Bash(curl -sf http://localhost:3000 -o /dev/null -w \"%{http_code}\\\\n\" --max-time 3)"
     ],
     "additionalDirectories": [
       "/Users/praful/Desktop/open/src/app"
