@@ -319,7 +319,7 @@ export async function analyzeInspirationItem(itemId: string) {
       where: { itemId },
       data: {
         status: "ERROR",
-        error: error instanceof Error ? error.message : "Analysis failed.",
+        error: humanizeAiError(error),
       },
     });
   }

@@ -296,7 +296,7 @@ ${html}`,
   } catch (error) {
     await db.variant.update({
       where: { id: variantId },
-      data: { status: "ERROR", error: error instanceof Error ? error.message : "Generation failed." },
+      data: { status: "ERROR", error: humanizeAiError(error) },
     });
   }
 }
@@ -342,7 +342,7 @@ export async function generateRound(roundId: string) {
       } catch (error) {
         await db.variant.updateMany({
           where: { roundId, lane },
-          data: { status: "ERROR", error: error instanceof Error ? error.message : "Spec generation failed." },
+          data: { status: "ERROR", error: humanizeAiError(error) },
         });
         return;
       }
@@ -374,7 +374,7 @@ export async function generateRound(roundId: string) {
           } catch (error) {
             await db.variant.update({
               where: { id: variant.id },
-              data: { status: "ERROR", error: error instanceof Error ? error.message : "Preview generation failed." },
+              data: { status: "ERROR", error: humanizeAiError(error) },
             });
           }
         }
