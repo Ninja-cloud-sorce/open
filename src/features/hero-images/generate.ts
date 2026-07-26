@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const MODEL = "gemini-2.5-flash";
+const MODEL = "gemini-flash-latest";
 const PREVIEW_SIZE = { width: 1024, height: 640 };
 const UPSCALE_SIZE = { width: 2048, height: 1280 };
 

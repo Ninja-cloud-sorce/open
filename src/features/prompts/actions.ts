@@ -120,7 +120,7 @@ export async function enhanceOutputPromptWithAI(id: string): Promise<{ brief: Pr
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-flash-latest",
       contents: `Rewrite the following design brief into tighter, more fluid prose. Preserve every constraint, section label, and piece of information — do not add or drop requirements, just improve the writing.\n\n${brief.outputPrompt}`,
     });
     const enhanced = response.text?.trim();

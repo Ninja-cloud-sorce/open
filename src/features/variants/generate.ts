@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { db } from "@/lib/db";
 import type { PromptBriefFields } from "@/features/prompts/types";
 
-const MODEL = "gemini-2.5-flash";
+const MODEL = "gemini-flash-latest";
 
 export const DIRECTIONS: { key: string; name: string; guidance: string }[] = [
   {

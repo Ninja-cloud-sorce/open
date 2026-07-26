@@ -1,8 +1,8 @@
 import { GoogleGenAI, createUserContent, createPartFromBase64, Type } from "@google/genai";
 import { db } from "@/lib/db";
 
-const ANALYSIS_MODEL = "gemini-2.5-flash";
-const EMBEDDING_MODEL = "text-embedding-004";
+const ANALYSIS_MODEL = "gemini-flash-latest";
+const EMBEDDING_MODEL = "gemini-embedding-001";
 const EMBEDDING_DIMENSIONS = 768;
 
 interface ColorSwatch {
