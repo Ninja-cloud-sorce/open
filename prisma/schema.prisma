@@ -19,8 +19,9 @@ enum InspirationType {
   NOTE
 }
 
-enum CategorizeStatus {
+enum AnalysisStatus {
   PENDING
+  ANALYZING
   DONE
   SKIPPED
   ERROR
@@ -42,27 +43,76 @@ model Tag {
 }
 
 model InspirationItem {
-  id               String            @id @default(cuid())
-  type             InspirationType
-  fileUrl          String?
-  posterUrl        String?
-  sourceUrl        String?
-  title            String?
-  description      String?
-  typography       String?
-  colorPalette     String?
-  layoutStyle      String?
-  motionStyle      String?
-  designVocabulary String?
-  aiPrompt         String?
-  aiBrief          String?
-  categorizeStatus CategorizeStatus @default(PENDING)
-  categorizeError  String?
-  collectionId     String?
-  collection       Collection?      @relation(fields: [collectionId], references: [id])
-  tags             Tag[]
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id           String            @id @default(cuid())
+  type         InspirationType
+  fileUrl      String?
+  posterUrl    String?
+  sourceUrl    String?
+  title        String?
+  description  String?
+  collectionId String?
+  collection   Collection?         @relation(fields: [collectionId], references: [id])
+  tags         Tag[]
+  analysis     InspirationAnalysis?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model InspirationAnalysis {
+  id     String         @id @default(cuid())
+  itemId String         @unique
+  item   InspirationItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  status AnalysisStatus @default(PENDING)
+  error  String?
+
+  title           String?
+  description     String?
+  primaryStyle    String?
+  secondaryStyles String?
+  confidence      Float?
+
+  visualTone     String?
+  designLanguage String?
+  mood           String?
+  industry       String?
+
+  layoutStyle     String?
+  gridSystem      String?
+  spacingDensity  String?
+  visualHierarchy String?
+
+  typographyHeadline String?
+  typographyBody     String?
+  typographyWeight   String?
+  typographyStyle    String?
+
+  colorPalette String?
+
+  illustrationStyle String?
+  iconStyle         String?
+  textures          String?
+  lighting          String?
+  depth             String?
+  animationStyle    String?
+
+  components      String?
+  keywords        String?
+  recommendedTags String?
+
+  scoreMinimalism    Int?
+  scorePremium       Int?
+  scoreCreativity    Int?
+  scoreTechnical     Int?
+  scoreStorytelling  Int?
+  scoreVisualDensity Int?
+  scoreAccessibility Int?
+  scoreConsistency   Int?
+
+  aiNotes   String?
+  embedding String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model InspirationSource {

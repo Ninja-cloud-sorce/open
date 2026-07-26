@@ -9,16 +9,16 @@ import { InspirationGrid } from "@/features/inspiration/components/inspiration-g
 import { UploadDialog } from "@/features/inspiration/components/upload-dialog";
 import { ItemDetailSheet } from "@/features/inspiration/components/item-detail-sheet";
 import { SourceLauncher } from "@/features/inspiration/components/source-launcher";
-import { useInspirationItems } from "@/features/inspiration/queries";
-import type { InspirationItemDTO } from "@/features/inspiration/types";
+import { useInspirationItems, useInspirationItem } from "@/features/inspiration/queries";
+import type { InspirationFilters } from "@/features/inspiration/types";
 
 export default function InspirationPage() {
-  const [collectionId, setCollectionId] = useState<string | undefined>(undefined);
-  const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<InspirationFilters>({});
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<InspirationItemDTO | null>(null);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
-  const { data: items = [], isLoading } = useInspirationItems({ collectionId, query });
+  const { data: items = [], isLoading } = useInspirationItems(filters);
+  const { data: selectedItem = null } = useInspirationItem(selectedItemId);
 
   return (
     <Reveal className="mx-auto max-w-6xl space-y-5 px-6 py-8">
@@ -35,17 +35,16 @@ export default function InspirationPage() {
         </Button>
       </div>
 
-      <CollectionFilter
-        collectionId={collectionId}
-        onCollectionChange={setCollectionId}
-        query={query}
-        onQueryChange={setQuery}
-      />
+      <CollectionFilter filters={filters} onFiltersChange={setFilters} />
 
-      <InspirationGrid items={items} isLoading={isLoading} onSelect={setSelectedItem} />
+      <InspirationGrid items={items} isLoading={isLoading} onSelect={(item) => setSelectedItemId(item.id)} />
 
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />
-      <ItemDetailSheet item={selectedItem} onClose={() => setSelectedItem(null)} />
+      <ItemDetailSheet
+        item={selectedItem}
+        onClose={() => setSelectedItemId(null)}
+        onSelectId={setSelectedItemId}
+      />
       <SourceLauncher />
     </Reveal>
   );

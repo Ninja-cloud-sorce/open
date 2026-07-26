@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { captureVideoPoster } from "@/features/inspiration/lib/capture-poster";
-import { useUploadInspirationItem, useRunCategorization, useCreateUrlOrNoteItem } from "@/features/inspiration/queries";
+import { useUploadInspirationItem, useRunAnalysis, useCreateUrlOrNoteItem } from "@/features/inspiration/queries";
 
 export function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [tab, setTab] = useState("upload");
@@ -27,7 +27,7 @@ export function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const upload = useUploadInspirationItem();
-  const categorize = useRunCategorization();
+  const analyze = useRunAnalysis();
   const createUrlOrNote = useCreateUrlOrNoteItem();
 
   const busy = upload.isPending || createUrlOrNote.isPending;
@@ -59,7 +59,7 @@ export function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChan
         const item = await upload.mutateAsync(formData);
         onOpenChange(false);
         reset();
-        categorize.mutate(item.id);
+        analyze.mutate(item.id);
       } else if (tab === "url") {
         if (!sourceUrl) {
           toast.error("Enter a URL.");

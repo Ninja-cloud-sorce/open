@@ -5,12 +5,13 @@ import { ArrowClockwise, LinkSimple, NotePencil, Play } from "@phosphor-icons/re
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { useRunCategorization } from "@/features/inspiration/queries";
+import { useRunAnalysis } from "@/features/inspiration/queries";
 import type { InspirationItemDTO } from "@/features/inspiration/types";
 
 export function InspirationCard({ item, onClick }: { item: InspirationItemDTO; onClick: () => void }) {
-  const runCategorization = useRunCategorization();
+  const runAnalysis = useRunAnalysis();
   const thumb = item.type === "VIDEO" ? item.posterUrl : item.fileUrl;
+  const status = item.analysis?.status;
 
   return (
     <button
@@ -34,23 +35,23 @@ export function InspirationCard({ item, onClick }: { item: InspirationItemDTO; o
           </div>
         )}
 
-        {item.categorizeStatus === "PENDING" && (
+        {(status === "PENDING" || status === "ANALYZING") && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80 backdrop-blur-sm">
             <Skeleton className="h-3 w-24" />
-            <span className="text-[11px] text-muted-foreground">Categorizing…</span>
+            <span className="text-[11px] text-muted-foreground">Analyzing…</span>
           </div>
         )}
 
-        {item.categorizeStatus === "ERROR" && (
+        {status === "ERROR" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/90 px-4 text-center">
-            <span className="text-[11px] text-muted-foreground">Categorization failed</span>
+            <span className="text-[11px] text-muted-foreground">Analysis failed</span>
             <Button
               size="sm"
               variant="outline"
               className="h-7 gap-1.5 px-2 text-xs"
               onClick={(event) => {
                 event.stopPropagation();
-                runCategorization.mutate(item.id);
+                runAnalysis.mutate(item.id);
               }}
             >
               <ArrowClockwise size={12} />
@@ -64,14 +65,24 @@ export function InspirationCard({ item, onClick }: { item: InspirationItemDTO; o
         <p className="line-clamp-1 text-sm font-medium text-foreground">
           {item.title || item.sourceUrl || item.description || "Untitled"}
         </p>
-        {(item.collection || item.tags.length > 0) && (
+        {(item.collection || item.analysis?.primaryStyle || item.tags.length > 0) && (
           <div className="flex flex-wrap gap-1.5">
             {item.collection && (
               <Badge variant="secondary" className="text-[10px]">
                 {item.collection.name}
               </Badge>
             )}
-            {item.tags.slice(0, 3).map((tag) => (
+            {item.analysis?.primaryStyle && (
+              <Badge variant="outline" className="border-brand/30 text-[10px] text-brand">
+                {item.analysis.primaryStyle}
+              </Badge>
+            )}
+            {item.analysis?.mood.slice(0, 1).map((mood) => (
+              <Badge key={mood} variant="outline" className="text-[10px] text-muted-foreground">
+                {mood}
+              </Badge>
+            ))}
+            {item.tags.slice(0, 2).map((tag) => (
               <Badge key={tag.id} variant="outline" className="text-[10px] text-muted-foreground">
                 {tag.name}
               </Badge>
