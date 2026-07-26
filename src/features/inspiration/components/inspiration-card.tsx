@@ -14,9 +14,19 @@ export function InspirationCard({ item, onClick }: { item: InspirationItemDTO; o
   const status = item.analysis?.status;
 
   return (
-    <button
+    // Not a <button>: the ERROR state nests a retry Button inside, and a button
+    // inside a button is invalid HTML that breaks hydration.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-colors duration-fast hover:border-brand/40"
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      className="group flex cursor-pointer flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-colors duration-fast hover:border-brand/40"
     >
       <div className="relative aspect-4/3 w-full overflow-hidden bg-muted">
         {thumb ? (
@@ -90,6 +100,6 @@ export function InspirationCard({ item, onClick }: { item: InspirationItemDTO; o
           </div>
         )}
       </div>
-    </button>
+    </div>
   );
 }
