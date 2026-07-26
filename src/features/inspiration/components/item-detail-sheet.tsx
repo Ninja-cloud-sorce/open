@@ -120,7 +120,11 @@ function ItemDetailForm({
         />
         <Select value={collectionId} onValueChange={(value) => setCollectionId(String(value))}>
           <SelectTrigger className="w-full">
-            <SelectValue placeholder="Collection" />
+            {/* Base UI renders the raw value unless given a formatter, which
+                would show the collection's cuid instead of its name. */}
+            <SelectValue placeholder="Collection">
+              {(value) => collections.find((c) => c.id === value)?.name ?? "Collection"}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {collections.map((collection) => (
