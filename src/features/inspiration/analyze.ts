@@ -214,7 +214,7 @@ async function embedSummary(result: AnalysisResult): Promise<number[]> {
     .filter(Boolean)
     .join(". ");
 
-  const response = await ai.models.embedContent({
+  const response = await geminiClient().models.embedContent({
     model: EMBEDDING_MODEL,
     contents: [summary],
     config: { outputDimensionality: EMBEDDING_DIMENSIONS },
@@ -245,12 +245,11 @@ export async function analyzeInspirationItem(itemId: string) {
   });
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const buffer = await readLocalUpload(imagePath);
     const mimeType = guessMimeType(imagePath);
 
-    const result = await runVisionAnalysis(ai, buffer.toString("base64"), mimeType);
-    const embedding = await embedSummary(ai, result).catch(() => []);
+    const result = await runVisionAnalysis(buffer.toString("base64"), mimeType);
+    const embedding = await embedSummary(result).catch(() => []);
 
     const collections = await db.collection.findMany({ select: { id: true, name: true } });
     const matchedCollection =
@@ -323,6 +322,15 @@ export async function analyzeInspirationItem(itemId: string) {
         error: humanizeAiError(error),
       },
     });
+
+    // Still file it somewhere. An unfiled item disappears from every collection
+    // view, which reads as "the upload failed" even though the image is fine.
+    if (!item.collectionId) {
+      const fallback = await db.collection.findUnique({ where: { name: "Uncategorized" } });
+      if (fallback) {
+        await db.inspirationItem.update({ where: { id: itemId }, data: { collectionId: fallback.id } });
+      }
+    }
   }
 }
 
