@@ -131,6 +131,7 @@ model PromptBrief {
   outputPrompt    String?
   references      InspirationItem[]
   variantSets     VariantSet[]
+  heroImageSets   HeroImageSet[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
@@ -174,6 +175,41 @@ model Variant {
   order        Int           @default(0)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+}
+
+enum HeroImageKind {
+  BASE
+  TREATMENT
+}
+
+model HeroImageSet {
+  id        String      @id @default(cuid())
+  briefId   String
+  brief     PromptBrief @relation(fields: [briefId], references: [id])
+  title     String
+  images    HeroImage[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model HeroImage {
+  id          String        @id @default(cuid())
+  setId       String
+  set         HeroImageSet  @relation(fields: [setId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      HeroImage?    @relation("HeroImageTreatments", fields: [parentId], references: [id])
+  treatments  HeroImage[]   @relation("HeroImageTreatments")
+  kind        HeroImageKind
+  label       String
+  conceptName String
+  prompt      String
+  seed        Int
+  imageUrl    String
+  upscaledUrl String?
+  favorite    Boolean       @default(false)
+  applied     Boolean       @default(false)
+  order       Int           @default(0)
+  createdAt   DateTime      @default(now())
 }
 
 model InspirationSource {
