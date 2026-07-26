@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { GoogleGenAI, Type } from "@google/genai";
 import { db } from "@/lib/db";
+import { humanizeAiError } from "@/lib/ai-errors";
 import type { DesignLane } from "@/generated/prisma/enums";
 
 /** Authoring models in descending capability. Free-tier keys have per-model quota

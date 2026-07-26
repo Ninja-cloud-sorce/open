@@ -27,19 +27,35 @@ function NavLink({
     <Link
       href={href}
       className={cn(
-        "group relative flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors duration-fast",
-        active
-          ? "bg-sidebar-accent font-medium text-sidebar-foreground"
-          : "text-sidebar-foreground/65 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+        "group relative flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors duration-base",
+        active ? "font-medium text-sidebar-foreground" : "text-sidebar-foreground/65 hover:text-sidebar-foreground",
         muted && !active && "text-sidebar-foreground/35",
         collapsed && "justify-center px-0"
       )}
     >
+      {/* Shared layoutId lets the highlight slide between items instead of
+          disappearing here and reappearing there. */}
+      {active && (
+        <motion.span
+          layoutId="sidebar-active-pill"
+          className="absolute inset-0 rounded-md bg-sidebar-accent"
+          transition={ACTIVE_SPRING}
+          aria-hidden
+        />
+      )}
       {active && !collapsed && (
-        <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-brand" aria-hidden />
+        <motion.span
+          layoutId="sidebar-active-bar"
+          className="absolute inset-y-1.5 left-0 z-10 w-0.5 rounded-full bg-brand"
+          transition={ACTIVE_SPRING}
+          aria-hidden
+        />
+      )}
+      {!active && (
+        <span className="absolute inset-0 rounded-md bg-sidebar-accent/0 transition-colors duration-fast group-hover:bg-sidebar-accent/50" aria-hidden />
       )}
       <Icon size={16} />
-      {!collapsed && <span className="truncate">{label}</span>}
+      {!collapsed && <span className="relative z-10 truncate">{label}</span>}
     </Link>
   );
 

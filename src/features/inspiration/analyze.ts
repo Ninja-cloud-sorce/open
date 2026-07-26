@@ -1,5 +1,6 @@
 import { GoogleGenAI, createUserContent, createPartFromBase64, Type } from "@google/genai";
 import { db } from "@/lib/db";
+import { humanizeAiError } from "@/lib/ai-errors";
 
 const ANALYSIS_MODEL = "gemini-flash-latest";
 const EMBEDDING_MODEL = "gemini-embedding-001";
