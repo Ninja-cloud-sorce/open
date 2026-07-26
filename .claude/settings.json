@@ -4,7 +4,8 @@
       "Bash(mkdir -p \"/Users/praful/Desktop/open/src/app/\\(studio\\)\")",
       "Bash(npm run *)",
       "Bash(node ./drive-tmp.mjs)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(npm approve-scripts *)"
     ],
     "additionalDirectories": [
       "/Users/praful/Desktop/open/src/app"

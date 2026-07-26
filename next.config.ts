@@ -7,10 +7,11 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
-  // Our sidebar's collapse control sits bottom-left; keep the dev indicator
-  // from overlapping it and eating clicks.
+  // Both bottom corners are claimed by our own fixed UI (sidebar collapse
+  // control bottom-left, inspiration-sources FAB bottom-right), so the dev
+  // indicator goes top-right to avoid eating clicks meant for either.
   devIndicators: {
-    position: "bottom-right",
+    position: "top-right",
   },
 };
 

@@ -45,6 +45,9 @@ next-env.d.ts
 /prisma/dev.db
 /prisma/dev.db-journal
 
+# user-uploaded inspiration assets
+/public/uploads/
+
 # scroll-world is its own git clone (has a nested .git); keep it out of this repo's history
 /scroll-world/
 
