@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<!--
+  Bake-off comparison harness: same placeholder content, run through two
+  design skills (Impeccable / Taste-Skill V2) across 5 style collections.
+  Swap DEMO copy in demoPageHTML() below once your real demo library exists.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bake-Off — Impeccable vs Taste-Skill V2</title>
+<style>
+  :root {
+    --chrome-bg: #0b0b0c;
+    --chrome-fg: #e8e6e1;
+    --chrome-muted: #7a7a76;
+    --chrome-line: #232323;
+    --chrome-accent: #ff7a30;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--chrome-bg);
+    color: var(--chrome-fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  button { font: inherit; cursor: pointer; }
+
+  /* ---------- Topbar ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--chrome-line);
+    flex-wrap: wrap;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 18px; }
+  .topbar-label {
+    font-size: 10.5px;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--chrome-muted);
+    line-height: 1.4;
+  }
+  .collection-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+  .collection-btn {
+    background: transparent;
+    border: 1px solid var(--chrome-line);
+    color: var(--chrome-fg);
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    border-radius: 4px;
+    transition: border-color .15s ease, color .15s ease;
+  }
+  .collection-btn:hover { color: var(--chrome-accent); border-color: #3a3a3a; }
+  .collection-btn.active { color: var(--chrome-accent); border-color: var(--chrome-accent); }
+  .topbar-right {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--chrome-muted);
+    white-space: nowrap;
+  }
+
+  /* ---------- Stage / panes ---------- */
+  .stage { display: flex; align-items: stretch; }
+  .pane {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--chrome-line);
+  }
+  .pane:last-child { border-right: none; }
+
+  .pane-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--chrome-line);
+    flex-wrap: wrap;
+  }
+  .pane-id { display: flex; align-items: baseline; gap: 10px; }
+  .pane-skill {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--chrome-accent);
+  }
+  .pane-collection {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--chrome-muted);
+  }
+  .pane-controls { display: flex; align-items: center; gap: 6px; }
+  .pane-controls button {
+    background: transparent;
+    border: 1px solid var(--chrome-line);
+    color: var(--chrome-muted);
+    font-size: 10.5px;
+    letter-spacing: 0.03em;
+    padding: 5px 9px;
+    border-radius: 3px;
+    transition: color .15s ease, border-color .15s ease;
+  }
+  .pane-controls button:hover { color: var(--chrome-fg); }
+  .pane-controls button.on {
+    color: var(--chrome-bg);
+    background: var(--chrome-accent);
+    border-color: var(--chrome-accent);
+  }
+  .pick-btn.picked { color: #ffcf6b; border-color: #ffcf6b; background: transparent; }
+  .layout-steps { display: flex; gap: 4px; margin-left: 4px; }
+  .layout-steps button {
+    width: 20px; height: 20px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+  }
+  .layout-steps button.on { background: var(--chrome-fg); color: var(--chrome-bg); border-color: var(--chrome-fg); }
+
+  /* ---------- Demo viewport ---------- */
+  .demo-viewport {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    max-height: 78vh;
+  }
+  .demo-page {
+    position: relative;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--body-font);
+  }
+
+  /* crop marks (print-tech) */
+  .crop-mark { display: none; position: absolute; width: 14px; height: 14px; }
+  .crop-mark::before, .crop-mark::after { content: ""; position: absolute; background: var(--muted); }
+  .crop-mark::before { width: 100%; height: 1px; top: 50%; }
+  .crop-mark::after { height: 100%; width: 1px; left: 50%; }
+  .crop-mark.tl { top: 14px; left: 14px; }
+  .crop-mark.tr { top: 14px; right: 14px; }
+  .crop-mark.bl { bottom: 14px; left: 14px; }
+  .crop-mark.br { bottom: 14px; right: 14px; }
+
+  /* bracket tags (data-texture) */
+  .bracket-tag {
+    display: none;
+    position: absolute;
+    top: 18px;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    color: var(--accent-active);
+  }
+  .tag-left { left: 24px; }
+  .tag-right { right: 24px; }
+
+  /* nav */
+  .demo-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 28px;
+    border-bottom: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  }
+  .demo-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; letter-spacing: 0.06em; }
+  .demo-logo-mark { width: 9px; height: 9px; border-radius: 50%; background: var(--accent-active); display: inline-block; }
+  .demo-nav-links { display: flex; gap: 22px; font-size: 12.5px; color: var(--muted); }
+  .demo-nav-links a { color: inherit; text-decoration: none; }
+  .demo-cta-nav {
+    background: var(--accent-active); color: var(--bg); border: none;
+    padding: 7px 14px; border-radius: var(--radius); font-size: 12px; font-weight: 700;
+  }
+
+  .demo-body { padding: 56px 28px 40px; }
+  .demo-hero { max-width: 640px; }
+  .demo-eyebrow {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 16px;
+  }
+  .demo-headline {
+    font-family: var(--head-font);
+    font-weight: var(--head-weight, 700);
+    font-size: clamp(30px, 4.4vw, 46px);
+    line-height: 1.08;
+    letter-spacing: var(--tracking, -0.01em);
+    margin: 0 0 18px;
+  }
+  .demo-headline em { font-style: italic; color: var(--accent-active); }
+  .demo-sub {
+    font-size: 15px; line-height: 1.55; color: var(--muted);
+    max-width: 46ch; margin: 0 0 26px;
+  }
+  .demo-ctas { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; }
+  .demo-cta.primary {
+    background: var(--accent-active); color: var(--bg); border: none;
+    padding: 12px 22px; border-radius: var(--radius); font-size: 13.5px; font-weight: 700;
+    transition: transform .15s ease;
+  }
+  .demo-cta.secondary {
+    color: var(--fg); text-decoration: none; font-size: 13.5px; font-weight: 600;
+    border-bottom: 1px solid var(--muted);
+    padding-bottom: 2px;
+  }
+  .demo-meta {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 10.5px; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 18px;
+  }
+  .demo-asset {
+    width: 220px; height: 130px; border-radius: var(--radius);
+    background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--muted) 22%, transparent), color-mix(in srgb, var(--muted) 22%, transparent) 8px, transparent 8px, transparent 16px);
+    border: 1px dashed var(--muted);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10.5px; color: var(--muted); letter-spacing: 0.04em;
+  }
+
+  .demo-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 44px; }
+  .demo-stat {
+    padding: 18px 16px;
+    border-top: 1px solid color-mix(in srgb, var(--muted) 40%, transparent);
+  }
+  .stat-num { display: block; font-family: var(--head-font); font-size: 22px; color: var(--accent-active); margin-bottom: 6px; }
+  .stat-label { display: block; font-size: 12.5px; font-weight: 700; margin-bottom: 4px; }
+  .stat-body { display: block; font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  .demo-footer {
+    display: flex; justify-content: space-between;
+    padding: 20px 28px; margin-top: 30px;
+    border-top: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+    font-size: 11px; color: var(--muted);
+  }
+
+  /* ---------- Layout variants (iteration) ---------- */
+  .demo-page.layout-b .demo-body { text-align: center; }
+  .demo-page.layout-b .demo-hero { max-width: 620px; margin: 0 auto; }
+  .demo-page.layout-b .demo-ctas { justify-content: center; }
+  .demo-page.layout-b .demo-asset { margin: 0 auto; }
+  .demo-page.layout-b .demo-stats { grid-template-columns: 1fr; max-width: 480px; margin-left: auto; margin-right: auto; }
+
+  .demo-page.layout-c .demo-body { display: grid; grid-template-columns: 1.3fr 1fr; gap: 40px; align-items: start; }
+  .demo-page.layout-c .demo-hero { max-width: none; }
+  .demo-page.layout-c .demo-stats { grid-template-columns: 1fr; margin-top: 0; }
+
+  @media (max-width: 900px) {
+    .demo-page.layout-c .demo-body { grid-template-columns: 1fr; }
+  }
+
+  /* ---------- Collection: print-tech ---------- */
+  .demo-page[data-collection="print-tech"] { --radius: 0px; }
+  .demo-page[data-collection="print-tech"] .crop-mark { display: block; }
+  .demo-page[data-collection="print-tech"] {
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--muted) 14%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--muted) 14%, transparent) 1px, transparent 1px);
+    background-size: 26px 26px;
+  }
+  .demo-page[data-collection="print-tech"] .demo-cta.primary { border-radius: 0; }
+
+  /* ---------- Collection: dither-mono ---------- */
+  .demo-page[data-collection="dither-mono"] {
+    background-image: radial-gradient(color-mix(in srgb, var(--fg) 6%, transparent) 1px, transparent 1px);
+    background-size: 4px 4px;
+  }
+  .demo-page[data-collection="dither-mono"] .demo-headline { border-bottom: 2px solid var(--accent-active); padding-bottom: 14px; display: inline-block; }
+
+  /* ---------- Collection: vast-quiet ---------- */
+  .demo-page[data-collection="vast-quiet"] .demo-body { padding: 108px 40px; }
+  .demo-page[data-collection="vast-quiet"] .demo-headline { font-weight: 300; letter-spacing: -0.02em; }
+  .demo-page[data-collection="vast-quiet"] .demo-eyebrow { opacity: 0.7; }
+  .demo-page[data-collection="vast-quiet"] .demo-stats { display: none; }
+  .demo-page[data-collection="vast-quiet"] .demo-nav { border-bottom-color: transparent; }
+
+  /* ---------- Collection: data-texture ---------- */
+  .demo-page[data-collection="data-texture"] { --radius: 0px; }
+  .demo-page[data-collection="data-texture"] .bracket-tag { display: block; }
+  .demo-page[data-collection="data-texture"] {
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--accent-active) 10%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-active) 10%, transparent) 1px, transparent 1px);
+    background-size: 34px 34px;
+  }
+  .demo-page[data-collection="data-texture"] .demo-headline { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; letter-spacing: -0.01em; }
+  .demo-page[data-collection="data-texture"] .demo-stat { border: 1px solid color-mix(in srgb, var(--muted) 40%, transparent); border-top: 1px solid color-mix(in srgb, var(--muted) 40%, transparent); }
+
+  /* ---------- Collection: classical ---------- */
+  .demo-page[data-collection="classical"] .demo-nav { justify-content: center; border-bottom: none; }
+  .demo-page[data-collection="classical"] .demo-nav-links { display: none; }
+  .demo-page[data-collection="classical"] .demo-cta-nav { display: none; }
+  .demo-page[data-collection="classical"] .demo-body { text-align: center; padding-top: 30px; }
+  .demo-page[data-collection="classical"] .demo-hero { max-width: 620px; margin: 0 auto; }
+  .demo-page[data-collection="classical"] .demo-eyebrow::before,
+  .demo-page[data-collection="classical"] .demo-eyebrow::after { content: "—"; margin: 0 10px; }
+  .demo-page[data-collection="classical"] .demo-headline {
+    border-top: 1px solid var(--muted); border-bottom: 1px solid var(--muted);
+    padding: 20px 0; margin-bottom: 22px;
+  }
+  .demo-page[data-collection="classical"] .demo-ctas { justify-content: center; }
+  .demo-page[data-collection="classical"] .demo-cta.primary { background: transparent; color: var(--fg); border: 1px solid var(--fg); }
+  .demo-page[data-collection="classical"] .demo-stats { grid-template-columns: repeat(3, 1fr); max-width: 620px; margin: 44px auto 0; }
+  .demo-page[data-collection="classical"] .demo-footer { justify-content: center; gap: 30px; }
+
+  /* ---------- Taste-only accessory visibility ---------- */
+  .taste-only { display: none; }
+  .pane[data-skill="taste"] .taste-only { display: initial; }
+  .pane[data-skill="taste"] .demo-asset.taste-only { display: flex; }
+
+  /* ---------- Motion toggle ---------- */
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  .pane.motion-on .demo-nav,
+  .pane.motion-on .demo-eyebrow,
+  .pane.motion-on .demo-headline,
+  .pane.motion-on .demo-sub,
+  .pane.motion-on .demo-ctas,
+  .pane.motion-on .demo-meta,
+  .pane.motion-on .demo-asset,
+  .pane.motion-on .demo-stat {
+    animation: fadeUp .5s cubic-bezier(.16,1,.3,1) both;
+  }
+  .pane.motion-on .demo-nav { animation-delay: 0s; }
+  .pane.motion-on .demo-eyebrow { animation-delay: .05s; }
+  .pane.motion-on .demo-headline { animation-delay: .1s; }
+  .pane.motion-on .demo-sub { animation-delay: .15s; }
+  .pane.motion-on .demo-ctas { animation-delay: .2s; }
+  .pane.motion-on .demo-meta { animation-delay: .24s; }
+  .pane.motion-on .demo-asset { animation-delay: .26s; }
+  .pane.motion-on .demo-stat:nth-child(1) { animation-delay: .28s; }
+  .pane.motion-on .demo-stat:nth-child(2) { animation-delay: .34s; }
+  .pane.motion-on .demo-stat:nth-child(3) { animation-delay: .40s; }
+  .pane.motion-on .demo-cta.primary:hover { transform: translateY(-2px); }
+
+  /* ---------- Color toggle ---------- */
+  .pane.color-on .demo-cta.primary {
+    background: linear-gradient(135deg, var(--accent-active), var(--accent-boost));
+  }
+  .pane.color-on .stat-num { text-shadow: 0 0 18px color-mix(in srgb, var(--accent-active) 55%, transparent); }
+  .pane.color-on .demo-logo-mark { background: linear-gradient(135deg, var(--accent-active), var(--accent-boost)); }
+  .pane.color-on .demo-page[data-collection="dither-mono"] .demo-headline { border-bottom-color: var(--accent-boost); }
+
+  /* ---------- Picks bar ---------- */
+  .picks-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px; border-top: 1px solid var(--chrome-line);
+    font-size: 12px; color: var(--chrome-muted); flex-wrap: wrap;
+  }
+  .picks-list { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pick-chip {
+    display: flex; align-items: center; gap: 8px;
+    background: #17130c; border: 1px solid #3a2c17; color: #ffcf6b;
+    padding: 4px 10px; border-radius: 999px; font-size: 11.5px;
+  }
+  .pick-chip button { background: none; border: none; color: inherit; font-size: 12px; line-height: 1; padding: 0; }
+
+  @media (max-width: 900px) {
+    .stage { flex-direction: column; }
+    .pane { border-right: none; border-bottom: 1px solid var(--chrome-line); }
+    .demo-viewport { max-height: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-label">BAKE-OFF<br>COLLECTION:</span>
+    <div class="collection-buttons" id="collectionButtons"></div>
+  </div>
+  <div class="topbar-right">LEFT = IMPECCABLE &middot; RIGHT = TASTE-SKILL V2 &middot; KEYS 1&ndash;5</div>
+</header>
+
+<div class="stage" id="stage">
+  <section class="pane" data-skill="impeccable">
+    <div class="pane-bar">
+      <div class="pane-id">
+        <span class="pane-skill">IMPECCABLE</span>
+        <span class="pane-collection" data-role="pane-collection-label"></span>
+      </div>
+      <div class="pane-controls">
+        <button data-toggle="motion">Motion</button>
+        <button data-toggle="color">Color</button>
+        <div class="layout-steps" data-role="layout-steps">
+          <button data-layout="a" class="on">1</button>
+          <button data-layout="b">2</button>
+          <button data-layout="c">3</button>
+        </div>
+        <button class="pick-btn" data-role="pick">&#9734; Pick this</button>
+      </div>
+    </div>
+    <div class="demo-viewport" data-role="viewport"></div>
+  </section>
+
+  <section class="pane" data-skill="taste">
+    <div class="pane-bar">
+      <div class="pane-id">
+        <span class="pane-skill">TASTE-SKILL V2</span>
+        <span class="pane-collection" data-role="pane-collection-label"></span>
+      </div>
+      <div class="pane-controls">
+        <button data-toggle="motion">Motion</button>
+        <button data-toggle="color">Color</button>
+        <div class="layout-steps" data-role="layout-steps">
+          <button data-layout="a" class="on">1</button>
+          <button data-layout="b">2</button>
+          <button data-layout="c">3</button>
+        </div>
+        <button class="pick-btn" data-role="pick">&#9734; Pick this</button>
+      </div>
+    </div>
+    <div class="demo-viewport" data-role="viewport"></div>
+  </section>
+</div>
+
+<footer class="picks-bar">
+  <span>Picks:</span>
+  <div class="picks-list" id="picksList"><span class="picks-empty">None yet — click "Pick this" on a pane you like.</span></div>
+</footer>
+
+<script>
+(function () {
+  var COLLECTIONS = [
+    { id: "print-tech",   label: "Print-Tech",
+      impeccable: { bg:"#f4f4f1", fg:"#141414", muted:"#6b6b66", accent:"#e8412a", accentBoost:"#00b4c8", headFont:"ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace", tracking:"0.01em" },
+      taste:      { bg:"#efeee8", fg:"#171717", muted:"#71716a", accent:"#c93a1f", accentBoost:"#0aa7bd", headFont:"ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace", tracking:"0.005em" } },
+    { id: "dither-mono",  label: "Dither Mono",
+      impeccable: { bg:"#151412", fg:"#ece8e1", muted:"#8a857c", accent:"#ff7a30", accentBoost:"#ffb37a", headFont:"Georgia, 'Iowan Old Style', serif", tracking:"-0.01em" },
+      taste:      { bg:"#171512", fg:"#efe9df", muted:"#8f897f", accent:"#ff8a42", accentBoost:"#ffc48f", headFont:"Georgia, 'Iowan Old Style', serif", tracking:"-0.008em" } },
+    { id: "vast-quiet",   label: "Vast Quiet",
+      impeccable: { bg:"#faf9f6", fg:"#1c1c19", muted:"#8f8c83", accent:"#3c5148", accentBoost:"#5d7a6d", headFont:"-apple-system, 'Segoe UI', sans-serif", tracking:"-0.02em" },
+      taste:      { bg:"#f8f7f3", fg:"#1c1c19", muted:"#928f86", accent:"#39504a", accentBoost:"#5a7b70", headFont:"-apple-system, 'Segoe UI', sans-serif", tracking:"-0.018em" } },
+    { id: "data-texture", label: "Data-Texture",
+      impeccable: { bg:"#0c1116", fg:"#d7e0e6", muted:"#5c6b76", accent:"#4fd1ff", accentBoost:"#ffb454", headFont:"ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace", tracking:"-0.01em" },
+      taste:      { bg:"#0a0f14", fg:"#d9e2e8", muted:"#5f6e79", accent:"#5fd8ff", accentBoost:"#ffc26a", headFont:"ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace", tracking:"-0.008em" } },
+    { id: "classical",    label: "Classical",
+      impeccable: { bg:"#f1ece0", fg:"#211c15", muted:"#8a8172", accent:"#7a2e2e", accentBoost:"#9c4646", headFont:"Georgia, 'Palatino Linotype', Palatino, serif", tracking:"0em" },
+      taste:      { bg:"#efe9db", fg:"#221d16", muted:"#8d8474", accent:"#6f3131", accentBoost:"#93504f", headFont:"Georgia, 'Palatino Linotype', Palatino, serif", tracking:"0em" } }
+  ];
+
+  function demoPageHTML(skill) {
+    var isTaste = skill === "taste";
+    return "" +
+      '<span class="crop-mark tl" aria-hidden="true"></span>' +
+      '<span class="crop-mark tr" aria-hidden="true"></span>' +
+      '<span class="crop-mark bl" aria-hidden="true"></span>' +
+      '<span class="crop-mark br" aria-hidden="true"></span>' +
+      '<span class="bracket-tag tag-left" aria-hidden="true">[ 01 ]</span>' +
+      '<span class="bracket-tag tag-right" aria-hidden="true">[ V.2 ]</span>' +
+      '<nav class="demo-nav">' +
+        '<span class="demo-logo"><span class="demo-logo-mark"></span>PLACEHOLDER</span>' +
+        '<div class="demo-nav-links"><a href="#">Product</a><a href="#">Approach</a><a href="#">Pricing</a></div>' +
+        (isTaste ? '<button class="demo-cta-nav">Get a demo</button>' : '') +
+      '</nav>' +
+      '<div class="demo-body">' +
+        '<div class="demo-hero">' +
+          '<p class="demo-eyebrow">PLACEHOLDER CATEGORY</p>' +
+          '<h1 class="demo-headline">A clearer way to <em>see</em> what you build.</h1>' +
+          '<p class="demo-sub">One or two lines of placeholder copy describing the value proposition sit here, short enough to read in a glance.</p>' +
+          '<div class="demo-ctas">' +
+            '<button class="demo-cta primary">Primary action</button>' +
+            (isTaste ? '<a class="demo-cta secondary" href="#">Secondary link &rarr;</a>' : '') +
+          '</div>' +
+          (isTaste ? '<div class="demo-meta taste-only">REF-014 &middot; LOT 02 &middot; sample data</div>' : '') +
+          (isTaste ? '<div class="demo-asset taste-only"><span>[ image placeholder ]</span></div>' : '') +
+        '</div>' +
+        '<div class="demo-stats">' +
+          statBlock("01") + statBlock("02") + statBlock("03") +
+        '</div>' +
+      '</div>' +
+      '<footer class="demo-footer"><span>PLACEHOLDER FOOTER</span><span>&copy; 2026</span></footer>';
+  }
+
+  function statBlock(n) {
+    return '<div class="demo-stat"><span class="stat-num">' + n + '</span>' +
+      '<span class="stat-label">Feature label placeholder</span>' +
+      '<span class="stat-body">Short placeholder description of what this does.</span></div>';
+  }
+
+  var panes = Array.prototype.slice.call(document.querySelectorAll(".pane")).map(function (el) {
+    return {
+      el: el,
+      skill: el.getAttribute("data-skill"),
+      viewport: el.querySelector('[data-role="viewport"]'),
+      collectionLabel: el.querySelector('[data-role="pane-collection-label"]'),
+      pickBtn: el.querySelector('[data-role="pick"]'),
+      motionOn: false,
+      colorOn: false,
+      layout: "a"
+    };
+  });
+
+  panes.forEach(function (p) {
+    p.viewport.innerHTML = demoPageHTML(p.skill);
+    p.demoPage = p.viewport.firstElementChild ? p.viewport : p.viewport;
+    // wrap contents in a positioned container for crop-mark absolute positioning
+    var wrapper = document.createElement("div");
+    wrapper.className = "demo-page layout-a";
+    wrapper.innerHTML = p.viewport.innerHTML;
+    p.viewport.innerHTML = "";
+    p.viewport.appendChild(wrapper);
+    p.demoPage = wrapper;
+  });
+
+  var currentCollection = COLLECTIONS[0].id;
+
+  function applyVars(pane, cfg) {
+    var s = pane.el.style;
+    s.setProperty("--bg", cfg.bg);
+    s.setProperty("--fg", cfg.fg);
+    s.setProperty("--muted", cfg.muted);
+    s.setProperty("--accent", cfg.accent);
+    s.setProperty("--accent-active", cfg.accent);
+    s.setProperty("--accent-boost", cfg.accentBoost);
+    s.setProperty("--head-font", cfg.headFont);
+    s.setProperty("--body-font", "-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif");
+    s.setProperty("--tracking", cfg.tracking);
+    s.setProperty("--radius", "6px");
+  }
+
+  function setCollection(id) {
+    currentCollection = id;
+    var def = COLLECTIONS.filter(function (c) { return c.id === id; })[0];
+    panes.forEach(function (pane) {
+      var cfg = def[pane.skill];
+      applyVars(pane, cfg);
+      pane.demoPage.setAttribute("data-collection", id);
+      pane.collectionLabel.textContent = def.label.toUpperCase();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".collection-btn"), function (btn) {
+      btn.classList.toggle("active", btn.getAttribute("data-collection") === id);
+    });
+    try { localStorage.setItem("bakeoff:collection", id); } catch (e) {}
+  }
+
+  var btnBar = document.getElementById("collectionButtons");
+  COLLECTIONS.forEach(function (c, i) {
+    var b = document.createElement("button");
+    b.className = "collection-btn";
+    b.textContent = c.label.toUpperCase();
+    b.setAttribute("data-collection", c.id);
+    b.addEventListener("click", function () { setCollection(c.id); });
+    btnBar.appendChild(b);
+  });
+
+  document.addEventListener("keydown", function (e) {
+    var idx = Number(e.key) - 1;
+    if (idx >= 0 && idx < COLLECTIONS.length) setCollection(COLLECTIONS[idx].id);
+  });
+
+  function replayAnimation(pane) {
+    pane.el.classList.remove("motion-on");
+    void pane.el.offsetWidth;
+    if (pane.motionOn) pane.el.classList.add("motion-on");
+  }
+
+  panes.forEach(function (pane) {
+    var controls = pane.el.querySelector(".pane-controls");
+
+    controls.querySelector('[data-toggle="motion"]').addEventListener("click", function () {
+      pane.motionOn = !pane.motionOn;
+      this.classList.toggle("on", pane.motionOn);
+      replayAnimation(pane);
+    });
+
+    controls.querySelector('[data-toggle="color"]').addEventListener("click", function () {
+      pane.colorOn = !pane.colorOn;
+      this.classList.toggle("on", pane.colorOn);
+      pane.el.classList.toggle("color-on", pane.colorOn);
+    });
+
+    Array.prototype.forEach.call(controls.querySelectorAll(".layout-steps button"), function (btn) {
+      btn.addEventListener("click", function () {
+        var layout = this.getAttribute("data-layout");
+        pane.demoPage.classList.remove("layout-a", "layout-b", "layout-c");
+        pane.demoPage.classList.add("layout-" + layout);
+        Array.prototype.forEach.call(controls.querySelectorAll(".layout-steps button"), function (b2) {
+          b2.classList.toggle("on", b2 === btn);
+        });
+      });
+    });
+
+    pane.pickBtn.addEventListener("click", function () {
+      addPick(pane.skill, currentCollection);
+    });
+  });
+
+  function loadPicks() {
+    try { return JSON.parse(localStorage.getItem("bakeoff:picks") || "[]"); }
+    catch (e) { return []; }
+  }
+  function savePicks(picks) {
+    try { localStorage.setItem("bakeoff:picks", JSON.stringify(picks)); } catch (e) {}
+  }
+  function renderPicks() {
+    var picks = loadPicks();
+    var list = document.getElementById("picksList");
+    list.innerHTML = "";
+    if (!picks.length) {
+      list.innerHTML = '<span class="picks-empty">None yet — click "Pick this" on a pane you like.</span>';
+      return;
+    }
+    picks.forEach(function (p, i) {
+      var chip = document.createElement("span");
+      chip.className = "pick-chip";
+      chip.innerHTML = "<span>" + labelFor(p.collection) + " &middot; " + skillLabel(p.skill) + "</span>";
+      var remove = document.createElement("button");
+      remove.textContent = "✕";
+      remove.addEventListener("click", function () {
+        var picks2 = loadPicks();
+        picks2.splice(i, 1);
+        savePicks(picks2);
+        renderPicks();
+      });
+      chip.appendChild(remove);
+      list.appendChild(chip);
+    });
+  }
+  function labelFor(id) {
+    var c = COLLECTIONS.filter(function (c) { return c.id === id; })[0];
+    return c ? c.label : id;
+  }
+  function skillLabel(skill) { return skill === "taste" ? "Taste-Skill V2" : "Impeccable"; }
+
+  function addPick(skill, collection) {
+    var picks = loadPicks();
+    var exists = picks.some(function (p) { return p.skill === skill && p.collection === collection; });
+    if (!exists) {
+      picks.push({ skill: skill, collection: collection });
+      savePicks(picks);
+      renderPicks();
+    }
+  }
+
+  var startId = (function () {
+    try { return localStorage.getItem("bakeoff:collection") || COLLECTIONS[0].id; }
+    catch (e) { return COLLECTIONS[0].id; }
+  })();
+  setCollection(startId);
+  renderPicks();
+})();
+</script>
+</body>
+</html>
