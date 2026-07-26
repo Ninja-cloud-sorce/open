@@ -1,9 +1,8 @@
-import { GoogleGenAI, createUserContent, createPartFromBase64, Type } from "@google/genai";
+import { createUserContent, createPartFromBase64, Type } from "@google/genai";
 import { db } from "@/lib/db";
 import { humanizeAiError } from "@/lib/ai-errors";
+import { callGemini, geminiClient, EMBEDDING_MODEL } from "@/lib/gemini";
 
-const ANALYSIS_MODEL = "gemini-flash-latest";
-const EMBEDDING_MODEL = "gemini-embedding-001";
 const EMBEDDING_DIMENSIONS = 768;
 
 interface ColorSwatch {
@@ -191,16 +190,17 @@ function guessMimeType(path: string) {
   }
 }
 
-async function runVisionAnalysis(ai: GoogleGenAI, base64: string, mimeType: string): Promise<AnalysisResult> {
-  const response = await ai.models.generateContent({
-    model: ANALYSIS_MODEL,
+async function runVisionAnalysis(base64: string, mimeType: string): Promise<AnalysisResult> {
+  // Goes through callGemini so a busy minute retries instead of leaving the
+  // item permanently uncategorized.
+  const text = await callGemini({
     contents: createUserContent([ANALYSIS_PROMPT, createPartFromBase64(base64, mimeType)]),
     config: { responseMimeType: "application/json", responseSchema: RESPONSE_SCHEMA },
   });
-  return JSON.parse(response.text ?? "{}");
+  return JSON.parse(text || "{}");
 }
 
-async function embedSummary(ai: GoogleGenAI, result: AnalysisResult): Promise<number[]> {
+async function embedSummary(result: AnalysisResult): Promise<number[]> {
   const summary = [
     result.title,
     result.description,
