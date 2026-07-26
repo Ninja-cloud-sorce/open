@@ -58,7 +58,10 @@ function NavLink({
       {!active && (
         <span className="absolute inset-0 rounded-md bg-sidebar-accent/0 transition-colors duration-fast group-hover:bg-sidebar-accent/50" aria-hidden />
       )}
-      <Icon size={16} />
+      {/* Both icon and label must sit above the absolutely-positioned pill. */}
+      <span className="relative z-10 flex shrink-0 items-center">
+        <Icon size={16} />
+      </span>
       {!collapsed && <span className="relative z-10 truncate">{label}</span>}
     </Link>
   );
