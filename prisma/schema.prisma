@@ -130,8 +130,50 @@ model PromptBrief {
   typographyStyle String?
   outputPrompt    String?
   references      InspirationItem[]
+  variantSets     VariantSet[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+enum VariantKind {
+  DIRECTION
+  REFINEMENT
+}
+
+enum VariantStatus {
+  PENDING
+  GENERATING
+  DONE
+  ERROR
+}
+
+model VariantSet {
+  id        String   @id @default(cuid())
+  briefId   String
+  brief     PromptBrief @relation(fields: [briefId], references: [id])
+  title     String
+  variants  Variant[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Variant {
+  id           String       @id @default(cuid())
+  variantSetId String
+  variantSet   VariantSet   @relation(fields: [variantSetId], references: [id], onDelete: Cascade)
+  parentId     String?
+  parent       Variant?     @relation("VariantRefinements", fields: [parentId], references: [id])
+  refinements  Variant[]    @relation("VariantRefinements")
+  kind         VariantKind
+  label        String
+  styleName    String
+  html         String?
+  status       VariantStatus @default(PENDING)
+  error        String?
+  favorite     Boolean       @default(false)
+  order        Int           @default(0)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 }
 
 model InspirationSource {
