@@ -47,3 +47,8 @@ next-env.d.ts
 
 # scroll-world is its own git clone (has a nested .git); keep it out of this repo's history
 /scroll-world/
+
+# Prisma's installer also mirrors its skill docs into editors we don't use here
+/.windsurf/
+
+/src/generated/prisma

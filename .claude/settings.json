@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"/Users/praful/Desktop/open/src/app/\\(studio\\)\")",
+      "Bash(npm run *)",
+      "Bash(node ./drive-tmp.mjs)",
+      "Bash(git add *)"
+    ],
+    "additionalDirectories": [
+      "/Users/praful/Desktop/open/src/app"
+    ]
+  }
+}

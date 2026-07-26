@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "src/generated/**",
+    // Vendored skills/plugins, not app source.
+    ".agents/**",
+    ".claude/**",
+    ".windsurf/**",
+    "scroll-world/**",
   ]),
 ]);
 
