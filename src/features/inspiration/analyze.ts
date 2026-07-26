@@ -337,9 +337,8 @@ export async function analyzeInspirationItem(itemId: string) {
 /** Embeds arbitrary query text using the same model/dimensionality as item analysis, for semantic search. */
 export async function embedQueryText(query: string): Promise<number[] | null> {
   if (!process.env.GEMINI_API_KEY) return null;
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  const response = await ai.models
-    .embedContent({
+  const response = await geminiClient()
+    .models.embedContent({
       model: EMBEDDING_MODEL,
       contents: [query],
       config: { outputDimensionality: EMBEDDING_DIMENSIONS },
