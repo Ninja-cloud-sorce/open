@@ -98,6 +98,13 @@ export async function getInspirationItem(id: string) {
   return item ? serializeItem(item) : null;
 }
 
+/** Batch variant of getInspirationItem, e.g. for resolving a PromptBrief's references. */
+export async function getInspirationItemsByIds(ids: string[]) {
+  if (ids.length === 0) return [];
+  const items = await db.inspirationItem.findMany({ where: { id: { in: ids } }, include: itemInclude });
+  return items.map(serializeItem);
+}
+
 export async function uploadInspirationItem(formData: FormData) {
   const file = formData.get("file") as File | null;
   const poster = formData.get("poster") as File | null;

@@ -54,6 +54,7 @@ model InspirationItem {
   collection   Collection?         @relation(fields: [collectionId], references: [id])
   tags         Tag[]
   analysis     InspirationAnalysis?
+  promptBriefs PromptBrief[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 }
@@ -113,6 +114,24 @@ model InspirationAnalysis {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model PromptBrief {
+  id              String   @id @default(cuid())
+  title           String
+  aesthetic       String?
+  intent          String?
+  audience        String?
+  constraints     String?
+  guardRails      String?
+  negativePrompt  String?
+  componentStyle  String?
+  motionStyle     String?
+  typographyStyle String?
+  outputPrompt    String?
+  references      InspirationItem[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model InspirationSource {
