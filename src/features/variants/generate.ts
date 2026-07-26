@@ -101,31 +101,53 @@ function ai() {
   return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 }
 
-/** Availability, not capability, is the binding constraint on free keys — walk the
- *  model list until one answers, and only surface an error if all of them refuse. */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Free-tier quota is per-model and per-minute, so a burst of parallel calls
+ *  gets 429s even when nothing is actually wrong. Walk the model list first,
+ *  then back off and retry rather than failing the variant. */
 async function authorContent(params: {
   contents: string;
   config?: Record<string, unknown>;
 }): Promise<string> {
+  const MAX_ROUNDS = 3;
   let lastError: unknown;
-  for (const model of AUTHOR_MODELS) {
-    try {
-      const response = await ai().models.generateContent({
-        model,
-        contents: params.contents,
-        ...(params.config ? { config: params.config } : {}),
-      });
-      const text = response.text ?? "";
-      if (text.trim()) return text;
-    } catch (error) {
-      lastError = error;
-      const message = String((error as Error)?.message ?? error);
-      // Quota / availability problems are worth retrying on another model;
-      // anything else is a real failure and should surface immediately.
-      if (!message.includes("429") && !message.includes("404")) throw error;
+
+  for (let attempt = 0; attempt < MAX_ROUNDS; attempt++) {
+    for (const model of AUTHOR_MODELS) {
+      try {
+        const response = await ai().models.generateContent({
+          model,
+          contents: params.contents,
+          ...(params.config ? { config: params.config } : {}),
+        });
+        const text = response.text ?? "";
+        if (text.trim()) return text;
+      } catch (error) {
+        lastError = error;
+        const message = String((error as Error)?.message ?? error);
+        // Availability/quota is retryable; anything else is a genuine failure.
+        if (!message.includes("429") && !message.includes("404")) throw error;
+      }
     }
+    // Every model refused — wait out the per-minute window before trying again.
+    if (attempt < MAX_ROUNDS - 1) await sleep(20_000 * (attempt + 1));
   }
+
   throw lastError ?? new Error("No available model returned a response.");
+}
+
+/** Runs tasks with bounded concurrency. Ten simultaneous generations exhaust a
+ *  free-tier minute instantly; a small pool keeps the round inside quota. */
+async function mapWithConcurrency<T>(items: T[], limit: number, task: (item: T) => Promise<void>) {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      await task(items[index]);
+    }
+  });
+  await Promise.all(workers);
 }
 
 /** Stage A — five distinct design systems for one lane. Cheap, text-only. */
@@ -305,8 +327,10 @@ export async function generateRound(roundId: string) {
 
   await db.variant.updateMany({ where: { roundId }, data: { status: "GENERATING", error: null } });
 
-  await Promise.all(
-    lanes.map(async (lane) => {
+  // Lanes run sequentially, and previews within a lane run in a small pool —
+  // both to stay inside the free tier's per-minute request quota.
+  for (const lane of lanes) {
+    await (async () => {
       const variants = await db.variant.findMany({
         where: { roundId, lane },
         orderBy: { order: "asc" },
@@ -323,8 +347,10 @@ export async function generateRound(roundId: string) {
         return;
       }
 
-      await Promise.all(
-        variants.map(async (variant, index) => {
+      await mapWithConcurrency(
+        variants.map((variant, index) => ({ variant, index })),
+        2,
+        async ({ variant, index }) => {
           const spec = specs[index];
           if (!spec) {
             await db.variant.update({
@@ -351,10 +377,10 @@ export async function generateRound(roundId: string) {
               data: { status: "ERROR", error: error instanceof Error ? error.message : "Preview generation failed." },
             });
           }
-        })
+        }
       );
-    })
-  );
+    })();
+  }
 }
 
 /** Suggests a starting subject line for hero image generation from project context. */
