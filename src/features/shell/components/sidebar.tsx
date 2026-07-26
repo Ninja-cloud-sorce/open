@@ -2,11 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion } from "motion/react";
 import { House, CaretLineLeft, CaretLineRight } from "@phosphor-icons/react/dist/ssr";
 import { STUDIO_MODULES, MODULE_GROUPS } from "@/features/shell/modules";
 import { useShellStore } from "@/features/shell/store";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+/** Snappy enough to feel responsive, damped enough not to wobble. */
+const ACTIVE_SPRING = { type: "spring", stiffness: 480, damping: 38, mass: 0.7 } as const;
 
 function NavLink({
   href,
