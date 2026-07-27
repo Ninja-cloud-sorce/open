@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { ArrowLeft, ArrowsClockwise, Sparkle } from "@phosphor-icons/react/dist/ssr";
@@ -28,6 +28,21 @@ interface Pair {
 }
 
 const EMPTY_PAIR: Pair = { left: null, right: null, next: "left" };
+
+/** An explicit pick wins; otherwise show one direction from each rulebook. A pick
+ *  that belongs to another round simply falls through to the default. */
+function resolvePair(round: VariantRoundDTO | null, pair: Pair) {
+  if (!round) return { left: null, right: null };
+  const find = (id: string | null) => (id ? round.variants.find((v) => v.id === id) ?? null : null);
+  const left =
+    find(pair.left) ?? round.variants.find((v) => v.lane === "IMPECCABLE") ?? round.variants[0] ?? null;
+  const right =
+    find(pair.right) ??
+    round.variants.find((v) => v.lane === "TASTE_SKILL") ??
+    round.variants.find((v) => v.id !== left?.id) ??
+    null;
+  return { left, right };
+}
 
 export function ProjectFlow({ projectId }: { projectId: string }) {
   const { data: project, isLoading } = useProject(projectId);
@@ -131,8 +146,8 @@ export function ProjectFlow({ projectId }: { projectId: string }) {
             setRoundId(id);
             setPair(EMPTY_PAIR);
           }}
-          leftId={pair.left}
-          rightId={pair.right}
+          leftId={left?.id ?? null}
+          rightId={right?.id ?? null}
           onPick={handlePick}
           mode={mode}
           onModeChange={setMode}
