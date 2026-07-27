@@ -4,6 +4,7 @@ import { Type } from "@google/genai";
 import { db } from "@/lib/db";
 import { humanizeAiError } from "@/lib/ai-errors";
 import { callLLM } from "@/lib/llm";
+import { normalizeHtmlDocument } from "@/lib/html";
 import type { DesignLane } from "@/generated/prisma/enums";
 
 
@@ -192,7 +193,7 @@ Build the landing page's opening screen: header/nav, hero (headline, supporting 
 
 ${SITE_RULES}`,
   });
-  return stripFences(text);
+  return normalizeHtmlDocument(text);
 }
 
 const SECTIONS = [
@@ -249,7 +250,7 @@ Every section must feel like part of the same designed system: consistent type s
 ${SITE_RULES}`,
     });
 
-    const html = stripFences(draftText);
+    const html = normalizeHtmlDocument(draftText);
 
     // Self-critique pass — a real quality lever, but it re-emits the whole
     // document, so it can truncate where the draft did not. Never let a failed
@@ -269,7 +270,7 @@ Return ONLY the corrected complete HTML document — no commentary.
 
 ${html}`,
       });
-      finalHtml = stripFences(revisedText);
+      finalHtml = normalizeHtmlDocument(revisedText);
     } catch {
       // Keep the draft; it already passed the renderable check.
     }
@@ -402,54 +403,4 @@ function toContext(project: {
       analysisSummary: [r.analysis?.primaryStyle, r.analysis?.aiNotes].filter(Boolean).join(": ") || null,
     })),
   };
-}
-
-/**
- * Normalizes whatever a provider returns into a renderable document, and
- * refuses anything that would render blank.
- *
- * Models differ in how well they follow output instructions: some wrap in
- * markdown fences, some add a sentence of preamble, some omit the doctype
- * (silently dropping the iframe into quirks mode), and some truncate mid-CSS
- * when they hit an output ceiling. That last case is the dangerous one — it
- * looks healthy by character count while containing no <body> at all — so it
- * throws rather than being stored.
- */
-function stripFences(text: string) {
-  let html = text.trim();
-
-  const fenced = html.match(/```(?:html)?\s*\n([\s\S]*?)```/);
-  if (fenced) html = fenced[1].trim();
-
-  const start = html.search(/<!DOCTYPE html|<html[\s>]/i);
-  if (start > 0) html = html.slice(start).trim();
-
-  if (html && !/^<!DOCTYPE/i.test(html)) html = `<!DOCTYPE html>\n${html}`;
-
-  assertRenderable(html);
-  return html;
-}
-
-/** A page with no closed body, or with a body containing no elements, renders
- *  as an empty screen. Fail loudly instead. */
-function assertRenderable(html: string) {
-  if (!html) throw new Error("Model returned an empty document.");
-
-  if (!/<\/html>/i.test(html) || !/<\/body>/i.test(html)) {
-    throw new Error("Model output was cut off before the document finished — try again.");
-  }
-
-  const body = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? "";
-  if (!/<[a-z]/i.test(body)) {
-    throw new Error("Model produced styles but no page content — try again.");
-  }
-
-  // Stylesheet text outside a <style> block renders as visible gibberish on the
-  // page. Strip real style/script blocks first, then look for leftover CSS.
-  const visible = body
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<script[\s\S]*?<\/script>/gi, "");
-  if (/[.#][\w-]+\s*\{[^}]*(?:display|color|margin|padding|font)\s*:/i.test(visible)) {
-    throw new Error("Model leaked raw CSS into the page body — try again.");
-  }
 }
