@@ -128,7 +128,8 @@ export async function runComponentGeneration(input: {
 
     const created = await db.component.create({
       data: {
-        name: input.styleNotes?.slice(0, 60) || input.category,
+        // Keep the name short and scannable; the full brief lives in `prompt`.
+        name: buildGeneratedName(input.category, input.styleNotes),
         category: input.category,
         source: "GENERATED",
         html: result.html,
@@ -181,6 +182,15 @@ export async function toggleComponentFavorite(id: string): Promise<void> {
 export async function deleteComponent(id: string): Promise<void> {
   await db.component.delete({ where: { id } });
   revalidatePath("/components");
+}
+
+/** "bold brutalist pricing table, heavy borders…" → "Bold Brutalist Pricing". */
+function buildGeneratedName(category: string, styleNotes?: string) {
+  const lead = (styleNotes ?? "").split(/[,.—-]/)[0].trim();
+  if (!lead) return category;
+  const words = lead.split(/\s+/).slice(0, 3).join(" ");
+  const titled = words.replace(/\b\w/g, (c) => c.toUpperCase());
+  return titled.toLowerCase().includes(category.toLowerCase()) ? titled : `${titled} ${category}`;
 }
 
 function serialize(row: {
