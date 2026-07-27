@@ -7,13 +7,13 @@ import { callLLM } from "@/lib/llm";
 import { normalizeHtmlDocument } from "@/lib/html";
 import { buildDiversityBrief, diversityPrompt } from "@/features/variants/diversity";
 import { COLLECTIONS } from "@/features/variants/collections";
+import type { DesignLane } from "@/generated/prisma/enums";
 
 /** A variant's 0-9 position in its round, so the Diversity Engine can spread its
  *  pools across all ten rather than drawing for each independently. */
 function variantSlot(lane: DesignLane, order: number): number {
   return (lane === "IMPECCABLE" ? 0 : COLLECTIONS.length) + order;
 }
-import type { DesignLane } from "@/generated/prisma/enums";
 
 
 /** Statically scoped so bundler file-tracing stays confined to this subfolder. */
