@@ -46,7 +46,7 @@ export function ComparePane({
   onNextRound: (variantId: string) => void;
   onExpandFullSite: (variantId: string) => void;
 }) {
-  // Full site is the richer view, so default to it the moment one exists.
+  // Both views are complete sites now; the polished one is the better default.
   const [showFull, setShowFull] = useState(true);
 
   if (!variant) {
@@ -92,7 +92,7 @@ export function ComparePane({
             onClick={() => setShowFull((v) => !v)}
             className="bg-background px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground transition-colors duration-fast hover:text-foreground"
           >
-            {full ? "Preview" : "Full site"}
+            {full ? "Draft" : "Polished"}
           </button>
         )}
         <button
@@ -121,7 +121,7 @@ export function ComparePane({
           className="flex items-center gap-1.5 bg-background px-3 py-2 text-[11px] text-muted-foreground transition-colors duration-fast hover:text-foreground disabled:opacity-40"
         >
           <Layout size={12} />
-          {hasFull ? "Rebuild" : "Build site"}
+          {hasFull ? "Re-polish" : "Polish"}
         </button>
       </footer>
     </div>

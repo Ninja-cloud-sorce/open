@@ -101,9 +101,9 @@ export function ProjectFlow({ projectId }: { projectId: string }) {
   }
 
   async function handleFullSite(variantId: string) {
-    toast.info("Building the full site — this takes a minute.");
+    toast.info("Polishing this direction - this takes a few minutes.");
     await runFullSite.mutateAsync(variantId);
-    toast.success("Full site built.");
+    toast.success("Polished build ready.");
   }
 
   return (
