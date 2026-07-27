@@ -11,7 +11,8 @@
       "Bash(npx tsx *)",
       "Bash(node ./r-tmp.mjs ultra)",
       "Bash(python3 -)",
-      "Bash(npx prisma *)"
+      "Bash(npx prisma *)",
+      "Bash(curl -s -o /dev/null --max-time 90 http://localhost:3000/projects)"
     ],
     "additionalDirectories": [
       "/Users/praful/Desktop/open/src/app"
