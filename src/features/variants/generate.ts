@@ -22,7 +22,46 @@ const LANE_LABEL: Record<DesignLane, string> = {
 };
 
 /** Cap per lane so the rulebooks inform the prompt without dominating the context window. */
-const RULES_CHAR_BUDGET = 14000;
+const RULES_CHAR_BUDGET = 40000;
+
+/**
+ * The Taste-Skill rulebook is ~87K characters and its most load-bearing sections
+ * — the forbidden-pattern list and the bias corrections — sit near the end. A
+ * plain head-slice dropped them entirely, which is exactly why output still read
+ * as AI-generated. Hoist those sections ahead of the narrative material.
+ */
+const PRIORITY_HEADINGS = [
+  /ai tells|forbidden pattern/i,
+  /design engineering directive|bias correction/i,
+  /layout discipline|content density/i,
+  /brief inference|anti-default/i,
+];
+
+/** Splits on top-level `## ` headings and packs priority sections in first. */
+function prioritizeSections(markdown: string, budget: number): string {
+  const chunks = markdown.split(/\n(?=## )/);
+  if (chunks.length < 2) return markdown.slice(0, budget);
+
+  const rank = (chunk: string) => {
+    const heading = chunk.slice(0, 120);
+    const index = PRIORITY_HEADINGS.findIndex((pattern) => pattern.test(heading));
+    return index === -1 ? PRIORITY_HEADINGS.length : index;
+  };
+
+  // Stable sort by rank keeps each tier in its authored order.
+  const ordered = chunks
+    .map((chunk, index) => ({ chunk, index, rank: rank(chunk) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index);
+
+  const kept: string[] = [];
+  let used = 0;
+  for (const { chunk } of ordered) {
+    if (used + chunk.length > budget) continue;
+    kept.push(chunk);
+    used += chunk.length;
+  }
+  return kept.join("\n");
+}
 
 const rulesCache = new Map<DesignLane, string>();
 
@@ -32,17 +71,22 @@ async function loadLaneRules(lane: DesignLane): Promise<string> {
   const cached = rulesCache.get(lane);
   if (cached) return cached;
 
+  const files = SKILL_FILES[lane];
+  const budgetPerFile = Math.floor(RULES_CHAR_BUDGET / files.length);
+
   const parts: string[] = [];
-  for (const relative of SKILL_FILES[lane]) {
+  for (const relative of files) {
     try {
       const contents = await readFile(path.join(SKILLS_DIR, relative), "utf8");
-      parts.push(contents);
+      parts.push(
+        contents.length > budgetPerFile ? prioritizeSections(contents, budgetPerFile) : contents
+      );
     } catch {
       // A missing skill file degrades guidance but must not break generation.
     }
   }
 
-  const joined = parts.join("\n\n---\n\n").slice(0, RULES_CHAR_BUDGET);
+  const joined = parts.join("\n\n---\n\n");
   rulesCache.set(lane, joined);
   return joined;
 }
@@ -168,9 +212,31 @@ const SITE_RULES = `Output a COMPLETE self-contained HTML document starting with
 - All CSS in one <style> tag in <head>. No external CSS frameworks.
 - Load fonts via a single Google Fonts <link>.
 - Bind every color, font, and radius to the supplied design tokens as CSS custom properties on :root, then use var() everywhere. This is what keeps the site visually consistent.
-- Real, specific copy for this business — never lorem ipsum, never "Your Company".
-- No placeholder image services and no <img> to external hosts; use CSS gradients, shapes, or typography for visual interest.
+- Real, specific copy for this business. Never lorem ipsum, never "Your Company".
+- Where a photograph belongs, use https://picsum.photos/seed/<descriptive-slug>/<width>/<height> with a slug describing the shot. Give every image an explicit width/height and object-fit: cover.
 - Semantic HTML, responsive down to 375px, accessible contrast.`;
+
+/**
+ * A compact ban list sitting directly beside the task. The lane rulebooks carry
+ * the full reasoning, but rules buried in tens of thousands of characters of
+ * context get followed less reliably than a short checklist at the point of use.
+ */
+const SLOP_BANS = `These are the signatures that make a page read as AI-generated. Treat them as hard bans:
+- No row of three equal feature cards. Use an asymmetric grid, a two-column zig-zag, or an editorial list.
+- No section-number eyebrows ("01 / INDEX", "002 - Capabilities"). Name the topic in plain language.
+- No version or status eyebrows in the hero ("V2.0", "BETA", "EARLY ACCESS", "INVITE ONLY").
+- No em-dash anywhere in the copy. Use a regular hyphen.
+- The middle dot is rationed to at most one per line. Never use it as a general separator.
+- No decorative status dots before nav links, badges, or list rows.
+- No hairline or crosshair grid lines added purely as decoration.
+- No fake product UI built out of divs (fake dashboard, terminal, task list, chat). This is the single biggest tell.
+- No gradient text on headings, no neon glows, no pure #000000, no oversaturated accents.
+- Do not use Inter. Do not lean on a huge H1 for hierarchy; use weight, color, and spacing.
+- No filler verbs: elevate, seamless, unleash, next-gen, revolutionize, empower, unlock, transform, streamline.
+- No generic person names (John Doe, Sarah Chen) and no fake-perfect figures (99.9%, 50%, 10,000+). Use specific, slightly irregular numbers.
+- No startup-slop naming (Acme, Nexus, SmartFlow, Cloudly).
+- No poetic section labels ("Field notes", "From the bench", "On our desks"). Plain functional labels.
+- Vary the rhythm between sections: alternate background weight, alignment, and density. Never stack eight centered blocks.`;
 
 /** Stage B (preview) — one representative screen per variant. */
 async function generatePreview(lane: DesignLane, project: ProjectContext, spec: SpecItem): Promise<string> {
