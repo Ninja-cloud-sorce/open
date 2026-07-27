@@ -9,7 +9,9 @@
       "Bash(curl -sf http://localhost:3000 -o /dev/null -w \"%{http_code}\\\\n\" --max-time 3)",
       "Bash(git push *)",
       "Bash(npx tsx *)",
-      "Bash(node ./r-tmp.mjs ultra)"
+      "Bash(node ./r-tmp.mjs ultra)",
+      "Bash(python3 -)",
+      "Bash(npx prisma *)"
     ],
     "additionalDirectories": [
       "/Users/praful/Desktop/open/src/app"

@@ -39,7 +39,8 @@ model Collection {
 model Tag {
   id    String            @id @default(cuid())
   name  String            @unique
-  items InspirationItem[]
+  items      InspirationItem[]
+  components Component[]
 }
 
 model InspirationItem {
@@ -194,6 +195,7 @@ model Variant {
   favorite     Boolean       @default(false)
   order        Int           @default(0)
   childRounds  VariantRound[] @relation("RoundParent")
+  components   Component[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 }
@@ -235,6 +237,29 @@ model HeroImage {
   applied     Boolean       @default(false)
   order       Int           @default(0)
   createdAt   DateTime      @default(now())
+}
+
+enum ComponentSource {
+  EXTRACTED
+  GENERATED
+}
+
+model Component {
+  id        String          @id @default(cuid())
+  name      String
+  category  String
+  source    ComponentSource
+  html      String
+  css       String
+  tokens    String?
+  prompt    String?
+  notes     String?
+  tags      Tag[]
+  variantId String?
+  variant   Variant?        @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  favorite  Boolean         @default(false)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 }
 
 model InspirationSource {
