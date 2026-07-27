@@ -182,7 +182,7 @@ async function generateLaneSpecs(
   parentTokens?: string | null,
   parentStyle?: string | null
 ): Promise<SpecItem[]> {
-  const rules = await loadLaneRules(lane);
+  const rules = await loadLaneRules(lane, SPEC_RULES_BUDGET);
 
   const refining = parentTokens
     ? `\n\nThis is a REFINEMENT round. The user picked "${parentStyle}" with these locked tokens:\n${parentTokens}\n\nKeep that visual identity - same font families, same palette, same voice - while still honouring each design language below. Vary composition, hierarchy, and density rather than hue and typeface.`
@@ -294,7 +294,7 @@ async function generatePreview(
   roundSeed: string,
   variantIndex: number
 ): Promise<string> {
-  const rules = await loadLaneRules(lane);
+  const rules = await loadLaneRules(lane, SITE_RULES_BUDGET);
   const architecture = diversityPrompt(buildDiversityBrief(roundSeed, variantIndex));
   const collection = COLLECTIONS.find((c) => c.name === spec.styleName);
 
@@ -343,7 +343,7 @@ export async function expandToFullSite(variantId: string) {
 
   try {
     const project = toContext(variant.round.project);
-    const rules = await loadLaneRules(variant.lane);
+    const rules = await loadLaneRules(variant.lane, SITE_RULES_BUDGET);
 
     const draftText = await callLLM({
       contents: `You are a design director working under this rulebook:
