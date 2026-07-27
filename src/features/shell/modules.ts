@@ -115,7 +115,7 @@ export const STUDIO_MODULES: StudioModule[] = [
     icon: Cube,
     group: "Library",
     phase: 7,
-    ready: false,
+    ready: true,
   },
   {
     id: "recipes",
