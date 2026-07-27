@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { humanizeAiError } from "@/lib/ai-errors";
 import { callLLM } from "@/lib/llm";
 import { normalizeHtmlDocument } from "@/lib/html";
+import { buildDiversityBrief, diversityPrompt } from "@/features/variants/diversity";
 import type { DesignLane } from "@/generated/prisma/enums";
 
 
@@ -240,24 +241,18 @@ const SLOP_BANS = `These are the signatures that make a page read as AI-generate
 - No poetic section labels ("Field notes", "From the bench", "On our desks"). Plain functional labels.
 - Vary the rhythm between sections: alternate background weight, alignment, and density. Never stack eight centered blocks.`;
 
-const SECTIONS = [
-  "sticky header with nav and a primary CTA",
-  "hero with headline, supporting paragraph, and two CTAs",
-  "services or features section (3-6 items, laid out per the design direction)",
-  "a proof section appropriate to this business (testimonials, credentials, stats, or case highlights)",
-  "pricing or engagement/booking section if it fits the business, otherwise a detailed 'how it works' section",
-  "FAQ section (4-6 questions)",
-  "closing CTA band",
-  "footer with navigation columns, contact details, and legal line",
-];
-
-const SECTION_LIST = SECTIONS.map((s, i) => `${i + 1}. ${s}`).join("\n");
-
-/** Stage B (preview) — a complete site per variant. Previously this asked for
- *  only a hero plus one band, which is why directions could not be judged as
- *  whole websites. */
-async function generatePreview(lane: DesignLane, project: ProjectContext, spec: SpecItem): Promise<string> {
+/** Stage B (preview) — a complete site per variant, on an architecture unique to
+ *  it. Previously this asked for only a hero plus one band against a fixed
+ *  eight-section list, which is why every direction came out the same shape. */
+async function generatePreview(
+  lane: DesignLane,
+  project: ProjectContext,
+  spec: SpecItem,
+  seed: string
+): Promise<string> {
   const rules = await loadLaneRules(lane);
+  const architecture = diversityPrompt(buildDiversityBrief(seed));
+
   const text = await callLLM({
     contents: `You are a design director working under this rulebook:
 
@@ -272,10 +267,9 @@ Design direction: "${spec.styleName}" - ${spec.rationale}
 Design tokens (bind these exactly, every section shares them):
 ${spec.designTokens}
 
-Build the COMPLETE marketing site as one long page containing all of these sections in order:
-${SECTION_LIST}
+${architecture}
 
-Every section must read as part of one designed system: the same type scale, spacing rhythm, and color roles throughout. This page is judged against nine others, so the visual identity has to be unmistakable and specific to this direction.
+Build the COMPLETE site as one long page. Every section must read as part of one designed system: the same type scale, spacing rhythm, and color roles throughout. This page is judged against nine others, so its visual identity has to be unmistakable and specific to this direction.
 
 ${SITE_RULES}
 
@@ -319,10 +313,9 @@ Design direction: "${variant.styleName}" — ${variant.rationale ?? ""}
 Design tokens (bind these exactly — every section must share them):
 ${variant.designTokens}
 
-Build the COMPLETE marketing site as one long page containing all of these sections in order:
-${SECTION_LIST}
+${diversityPrompt(buildDiversityBrief(variant.id))}
 
-Every section must feel like part of the same designed system: consistent type scale, spacing rhythm, and color roles throughout. Vary section layouts so the page has rhythm.
+Build the COMPLETE site as one long page. Every section must feel like part of the same designed system: consistent type scale, spacing rhythm, and color roles throughout.
 
 ${SITE_RULES}
 
@@ -435,7 +428,7 @@ export async function generateRound(roundId: string) {
           });
 
           try {
-            const previewHtml = await generatePreview(lane, project, spec);
+            const previewHtml = await generatePreview(lane, project, spec, variant.id);
             await db.variant.update({
               where: { id: variant.id },
               data: { status: "DONE", error: null, previewHtml },
