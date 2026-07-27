@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { generateRound, expandToFullSite } from "@/features/variants/generate";
+import { COLLECTIONS } from "@/features/variants/collections";
 import type { DesignLane } from "@/generated/prisma/enums";
 import type {
   DesignTokens,
@@ -100,7 +101,11 @@ export async function deleteProject(id: string): Promise<void> {
   revalidatePath("/projects");
 }
 
-/** Creates round 1 (both lanes, 5 each) or a refinement round off a picked variant. */
+/**
+ * Creates a round: the five design languages, each built under both rulebooks.
+ * Refinement rounds keep both lanes too, so the left/right comparison holds at
+ * every round rather than collapsing to a single lane after the first pick.
+ */
 export async function startRound(projectId: string, parentVariantId?: string): Promise<{ roundId: string }> {
   const lastRound = await db.variantRound.findFirst({
     where: { projectId },
@@ -108,11 +113,7 @@ export async function startRound(projectId: string, parentVariantId?: string): P
   });
   const roundNumber = (lastRound?.roundNumber ?? 0) + 1;
 
-  const parent = parentVariantId
-    ? await db.variant.findUniqueOrThrow({ where: { id: parentVariantId } })
-    : null;
-
-  const lanes: DesignLane[] = parent ? [parent.lane] : ["IMPECCABLE", "TASTE_SKILL"];
+  const lanes: DesignLane[] = ["IMPECCABLE", "TASTE_SKILL"];
 
   const round = await db.variantRound.create({
     data: {
@@ -121,10 +122,10 @@ export async function startRound(projectId: string, parentVariantId?: string): P
       parentVariantId: parentVariantId ?? null,
       variants: {
         create: lanes.flatMap((lane) =>
-          Array.from({ length: 5 }, (_, index) => ({
+          COLLECTIONS.map((collection, index) => ({
             lane,
             label: `${LANE_PREFIX[lane]}${roundNumber}.${index + 1}`,
-            styleName: "Generating…",
+            styleName: collection.name,
             status: "PENDING" as const,
             order: index,
           }))

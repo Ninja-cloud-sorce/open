@@ -3,81 +3,20 @@
 import { useEffect } from "react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
-import type { DesignLane } from "@/generated/prisma/enums";
-import type { VariantDTO, VariantRoundDTO } from "@/features/projects/types";
-
-const LANE_LABEL: Record<DesignLane, string> = {
-  IMPECCABLE: "Impeccable",
-  TASTE_SKILL: "Taste-Skill V2",
-};
-
-const LANE_ORDER: DesignLane[] = ["IMPECCABLE", "TASTE_SKILL"];
-
-/** 1…9 then 0, matching how the chips read left to right. */
-const HOTKEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
-
-function Chip({
-  variant,
-  hotkey,
-  side,
-  onPick,
-}: {
-  variant: VariantDTO;
-  hotkey: string | undefined;
-  side: "L" | "R" | null;
-  onPick: () => void;
-}) {
-  const pending = variant.status === "PENDING" || variant.status === "GENERATING";
-  const failed = variant.status === "ERROR";
-
-  return (
-    <button
-      onClick={onPick}
-      title={variant.styleName}
-      className={cn(
-        "group relative flex shrink-0 items-center gap-2 rounded-sm px-2.5 py-1.5 font-mono text-[11px] tracking-[0.12em] transition-colors duration-fast",
-        side ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-      )}
-    >
-      {side && (
-        <motion.span
-          layoutId="variant-chip-active"
-          transition={{ type: "spring", stiffness: 420, damping: 34 }}
-          className="absolute inset-0 rounded-sm border border-brand/50 bg-brand/10"
-        />
-      )}
-      <span className="relative z-10 flex items-center gap-1.5">
-        {pending && <span className="size-1 animate-pulse rounded-full bg-muted-foreground" />}
-        {failed && <span className="size-1 rounded-full bg-destructive" />}
-        {variant.label}
-      </span>
-      {side ? (
-        <span className="relative z-10 rounded-[2px] bg-brand px-1 text-[9px] leading-[1.4] text-brand-foreground">
-          {side}
-        </span>
-      ) : (
-        hotkey && (
-          <span className="relative z-10 text-[9px] text-muted-foreground/40 group-hover:text-muted-foreground/70">
-            {hotkey}
-          </span>
-        )
-      )}
-    </button>
-  );
-}
+import { COLLECTIONS } from "@/features/variants/collections";
+import type { VariantRoundDTO } from "@/features/projects/types";
 
 /**
- * The one control surface for the round: every direction as a chip, grouped by
- * rulebook. Picking a chip drops it into whichever pane was not filled last, so
- * two clicks always give you a fresh comparison.
+ * One button per design language. Picking one puts the Impeccable reading of it
+ * in the left pane and the Taste-Skill reading in the right, so the split is
+ * always the same brief answered two ways.
  */
 export function VariantBar({
   rounds,
   activeRound,
   onRoundChange,
-  leftId,
-  rightId,
-  onPick,
+  activeIndex,
+  onIndexChange,
   mode,
   onModeChange,
   canHero,
@@ -85,33 +24,33 @@ export function VariantBar({
   rounds: VariantRoundDTO[];
   activeRound: VariantRoundDTO;
   onRoundChange: (roundId: string) => void;
-  leftId: string | null;
-  rightId: string | null;
-  onPick: (variantId: string) => void;
+  activeIndex: number;
+  onIndexChange: (index: number) => void;
   mode: "compare" | "hero";
   onModeChange: (mode: "compare" | "hero") => void;
   canHero: boolean;
 }) {
-  const ordered = LANE_ORDER.flatMap((lane) => activeRound.variants.filter((v) => v.lane === lane));
-
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
-      const index = HOTKEYS.indexOf(event.key);
-      const variant = index >= 0 ? ordered[index] : undefined;
-      if (variant) {
+      const index = Number(event.key) - 1;
+      if (index >= 0 && index < COLLECTIONS.length) {
         event.preventDefault();
-        onPick(variant.id);
+        onIndexChange(index);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [ordered, onPick]);
+  }, [onIndexChange]);
 
   return (
     <div className="flex items-center gap-3 overflow-x-auto border-b border-border px-4 py-1.5">
+      <span className="hidden shrink-0 font-mono text-[10px] uppercase leading-tight tracking-[0.16em] text-muted-foreground/60 sm:inline">
+        Collection
+      </span>
+
       {rounds.length > 1 && (
         <div className="flex shrink-0 items-center gap-1 border-r border-border pr-3">
           {rounds.map((round) => (
@@ -131,36 +70,50 @@ export function VariantBar({
         </div>
       )}
 
-      {LANE_ORDER.map((lane, laneIndex) => {
-        const laneVariants = activeRound.variants.filter((v) => v.lane === lane);
-        if (laneVariants.length === 0) return null;
-        return (
-          <div
-            key={lane}
-            className={cn(
-              "flex shrink-0 items-center gap-0.5",
-              laneIndex > 0 && "border-l border-border pl-3"
-            )}
-          >
-            <span className="mr-1 font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground/50">
-              {lane === "IMPECCABLE" ? "L" : "R"}
-            </span>
-            {laneVariants.map((variant) => (
-              <Chip
-                key={variant.id}
-                variant={variant}
-                hotkey={HOTKEYS[ordered.indexOf(variant)]}
-                side={variant.id === leftId ? "L" : variant.id === rightId ? "R" : null}
-                onPick={() => onPick(variant.id)}
-              />
-            ))}
-          </div>
-        );
-      })}
+      <div className="flex shrink-0 items-center gap-1">
+        {COLLECTIONS.map((collection, index) => {
+          const active = index === activeIndex;
+          // Both lanes have to be ready before the pair is worth looking at.
+          const ready = activeRound.variants.filter(
+            (v) => v.order === index && v.status === "DONE"
+          ).length;
+          return (
+            <button
+              key={collection.id}
+              onClick={() => onIndexChange(index)}
+              title={collection.brief}
+              className={cn(
+                "group relative shrink-0 rounded-sm px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.12em] transition-colors duration-fast",
+                active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {active && (
+                <motion.span
+                  layoutId="collection-active"
+                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                  className="absolute inset-0 rounded-sm border border-brand/50 bg-brand/10"
+                />
+              )}
+              <span className="relative z-10 flex items-center gap-1.5">
+                {ready < 2 && (
+                  <span
+                    className={cn(
+                      "size-1 rounded-full",
+                      ready === 0 ? "animate-pulse bg-muted-foreground/50" : "bg-brand/60"
+                    )}
+                  />
+                )}
+                {collection.name}
+                <span className="text-[9px] text-muted-foreground/40">{index + 1}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-3 pl-3">
         <span className="hidden font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70 xl:inline">
-          Left = {LANE_LABEL.IMPECCABLE} · Right = {LANE_LABEL.TASTE_SKILL} · Keys 1–0
+          Left = Impeccable · Right = Taste-Skill V2 · Keys 1-5
         </span>
         {canHero && (
           <button

@@ -6,6 +6,7 @@ import { humanizeAiError } from "@/lib/ai-errors";
 import { callLLM } from "@/lib/llm";
 import { normalizeHtmlDocument } from "@/lib/html";
 import { buildDiversityBrief, diversityPrompt } from "@/features/variants/diversity";
+import { COLLECTIONS } from "@/features/variants/collections";
 import type { DesignLane } from "@/generated/prisma/enums";
 
 
@@ -153,7 +154,11 @@ async function mapWithConcurrency<T>(items: T[], limit: number, task: (item: T) 
   await Promise.all(workers);
 }
 
-/** Stage A — five distinct design systems for one lane. Cheap, text-only. */
+/**
+ * Stage A — this lane's interpretation of each of the five fixed design
+ * languages. Order is load-bearing: index i is COLLECTIONS[i], which is how the
+ * two lanes pair up in the split view.
+ */
 async function generateLaneSpecs(
   lane: DesignLane,
   project: ProjectContext,
@@ -163,11 +168,15 @@ async function generateLaneSpecs(
   const rules = await loadLaneRules(lane);
 
   const refining = parentTokens
-    ? `\n\nThis is a REFINEMENT round. The user picked the direction "${parentStyle}" with these locked tokens:\n${parentTokens}\n\nAll 5 new options must keep that same visual identity — same font families, same palette, same overall voice. Vary only composition, hierarchy, density, and structural treatment. Do NOT introduce new fonts or new hues.`
-    : `\n\nThese 5 must be genuinely different from each other — different type pairings, different palettes, different structural personalities. Not 5 shades of one idea.`;
+    ? `\n\nThis is a REFINEMENT round. The user picked "${parentStyle}" with these locked tokens:\n${parentTokens}\n\nKeep that visual identity - same font families, same palette, same voice - while still honouring each design language below. Vary composition, hierarchy, and density rather than hue and typeface.`
+    : "";
+
+  const collections = COLLECTIONS.map(
+    (collection, index) => `${index + 1}. ${collection.name}\n${collection.brief}`
+  ).join("\n\n");
 
   const text = await callLLM({
-    contents: `You are a design director working under the following rulebook. Follow it closely — it is the house style you are accountable to.
+    contents: `You are a design director working under the following rulebook. Follow it closely - it is the house style you are accountable to.
 
 === RULEBOOK: ${LANE_LABEL[lane]} ===
 ${rules}
@@ -176,16 +185,33 @@ ${rules}
 Brief:
 ${projectBrief(project)}${refining}
 
-Produce exactly 5 design directions. For each: a short "styleName" (1-3 words), a one-sentence "rationale" tying it to the brief, and "designTokens".
+Below are five fixed design languages. Produce YOUR rulebook's interpretation of each one, applied to this specific business.
 
-Token constraints: never Inter, never pure #000000 or #FFFFFF for backgrounds, and no oversaturated accent. Pick typefaces with actual character that suit this specific business.
+=== DESIGN LANGUAGES ===
+${collections}
+=== END DESIGN LANGUAGES ===
+
+Return exactly ${COLLECTIONS.length} items in that exact order. For each:
+- "styleName": the design language's name, unchanged (${COLLECTIONS.map((c) => c.name).join(", ")}).
+- "rationale": one sentence on how your rulebook reads this language for this business.
+- "designTokens": tokens that genuinely express that language. Print-Tech and Vast Quiet must not end up with similar palettes or type.
+
+Token constraints: never Inter, never pure #000000 or #FFFFFF for backgrounds, and no oversaturated accent.
 
 ${TOKENS_SHAPE}`,
     config: { responseMimeType: "application/json", responseSchema: SPEC_SCHEMA },
     length: "short",
   });
 
-  return parseSpecList(text).slice(0, 5);
+  const parsed = parseSpecList(text).slice(0, COLLECTIONS.length);
+
+  // The collection name is ours, not the model's — the split view pairs on it,
+  // so a hallucinated or reordered name would break the comparison.
+  return COLLECTIONS.map((collection, index) => ({
+    styleName: collection.name,
+    rationale: parsed[index]?.rationale ?? collection.brief,
+    designTokens: parsed[index]?.designTokens ?? "",
+  })).filter((spec) => spec.designTokens);
 }
 
 /**
@@ -252,6 +278,7 @@ async function generatePreview(
 ): Promise<string> {
   const rules = await loadLaneRules(lane);
   const architecture = diversityPrompt(buildDiversityBrief(seed));
+  const collection = COLLECTIONS.find((c) => c.name === spec.styleName);
 
   const text = await callLLM({
     contents: `You are a design director working under this rulebook:
@@ -263,7 +290,8 @@ ${rules}
 Brief:
 ${projectBrief(project)}
 
-Design direction: "${spec.styleName}" - ${spec.rationale}
+Design language: "${spec.styleName}"
+${collection ? `${collection.brief}\n` : ""}Your reading of it: ${spec.rationale}
 Design tokens (bind these exactly, every section shares them):
 ${spec.designTokens}
 
@@ -384,8 +412,9 @@ export async function generateRound(roundId: string) {
   const project = toContext(round.project);
   const parent = round.parentVariant;
 
-  // A refinement round stays in the lane the picked variant came from.
-  const lanes: DesignLane[] = parent ? [parent.lane] : ["IMPECCABLE", "TASTE_SKILL"];
+  // Both lanes on every round, refinement included, so each design language
+  // always has an Impeccable version on the left and a Taste-Skill one right.
+  const lanes: DesignLane[] = ["IMPECCABLE", "TASTE_SKILL"];
 
   await db.variant.updateMany({ where: { roundId }, data: { status: "GENERATING", error: null } });
 

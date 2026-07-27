@@ -12,7 +12,11 @@
       "Bash(node ./r-tmp.mjs ultra)",
       "Bash(python3 -)",
       "Bash(npx prisma *)",
-      "Bash(curl -s -o /dev/null --max-time 90 http://localhost:3000/projects)"
+      "Bash(curl -s -o /dev/null --max-time 90 http://localhost:3000/projects)",
+      "Bash(kill 16537)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"TSC EXIT: $?\")",
+      "Bash(curl -s --max-time 120 -o /dev/null -w \"projects: %{http_code}\\\\n\" http://localhost:3000/projects)"
     ],
     "additionalDirectories": [
       "/Users/praful/Desktop/open/src/app"

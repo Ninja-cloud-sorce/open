@@ -19,24 +19,13 @@ import {
   useToggleVariantFavorite,
 } from "@/features/projects/queries";
 
-/** The side a pick lands on is decided by its rulebook, never by click order:
- *  Impeccable is always the left pane, Taste-Skill V2 always the right. */
-interface Pair {
-  left: string | null;
-  right: string | null;
-}
-
-const EMPTY_PAIR: Pair = { left: null, right: null };
-
-/** An explicit pick wins; otherwise show the first direction from each rulebook.
- *  A pick belonging to another round falls through to that default. */
-function resolvePair(round: VariantRoundDTO | null, pair: Pair) {
+/** The two panes are the same design language read by each rulebook. Variants
+ *  pair on `order`, which is the collection index. */
+function resolvePair(round: VariantRoundDTO | null, index: number) {
   if (!round) return { left: null, right: null };
-  const pick = (id: string | null, lane: "IMPECCABLE" | "TASTE_SKILL") => {
-    const chosen = id ? round.variants.find((v) => v.id === id && v.lane === lane) : null;
-    return chosen ?? round.variants.find((v) => v.lane === lane) ?? null;
-  };
-  return { left: pick(pair.left, "IMPECCABLE"), right: pick(pair.right, "TASTE_SKILL") };
+  const at = (lane: "IMPECCABLE" | "TASTE_SKILL") =>
+    round.variants.find((v) => v.lane === lane && v.order === index) ?? null;
+  return { left: at("IMPECCABLE"), right: at("TASTE_SKILL") };
 }
 
 export function ProjectFlow({ projectId }: { projectId: string }) {
@@ -48,7 +37,7 @@ export function ProjectFlow({ projectId }: { projectId: string }) {
   const toggleFavorite = useToggleVariantFavorite(projectId);
 
   const [roundId, setRoundId] = useState<string | null>(null);
-  const [pair, setPair] = useState<Pair>(EMPTY_PAIR);
+  const [collectionIndex, setCollectionIndex] = useState(0);
   const [mode, setMode] = useState<"compare" | "hero">("compare");
 
   const busy = startRound.isPending || runRound.isPending || runFullSite.isPending;
@@ -57,9 +46,7 @@ export function ProjectFlow({ projectId }: { projectId: string }) {
   const activeRound: VariantRoundDTO | null =
     rounds.find((r) => r.id === roundId) ?? rounds[rounds.length - 1] ?? null;
 
-  // Which variant each pane shows is derived, not stored: an explicit pick wins,
-  // otherwise fall back to one direction per rulebook so the split is never empty.
-  const { left, right } = resolvePair(activeRound, pair);
+  const { left, right } = resolvePair(activeRound, collectionIndex);
 
   if (isLoading || !project) {
     return (
@@ -72,14 +59,6 @@ export function ProjectFlow({ projectId }: { projectId: string }) {
 
   const anyFullSite = rounds.some((r) => r.variants.some((v) => v.fullSiteHtml));
 
-  function handlePick(variantId: string) {
-    const variant = activeRound?.variants.find((v) => v.id === variantId);
-    if (!variant) return;
-    setPair((prev) =>
-      variant.lane === "IMPECCABLE" ? { ...prev, left: variantId } : { ...prev, right: variantId }
-    );
-  }
-
   async function handleFirstRound() {
     const { roundId: created } = await startRound.mutateAsync(undefined);
     setRoundId(created);
@@ -90,7 +69,6 @@ export function ProjectFlow({ projectId }: { projectId: string }) {
   async function handleNextRound(variantId: string) {
     const { roundId: created } = await startRound.mutateAsync(variantId);
     setRoundId(created);
-    setPair(EMPTY_PAIR);
     await runRound.mutateAsync(created);
     toast.success("Refinements ready.");
   }
@@ -136,13 +114,9 @@ export function ProjectFlow({ projectId }: { projectId: string }) {
         <VariantBar
           rounds={rounds}
           activeRound={activeRound}
-          onRoundChange={(id) => {
-            setRoundId(id);
-            setPair(EMPTY_PAIR);
-          }}
-          leftId={left?.id ?? null}
-          rightId={right?.id ?? null}
-          onPick={handlePick}
+          onRoundChange={setRoundId}
+          activeIndex={collectionIndex}
+          onIndexChange={setCollectionIndex}
           mode={mode}
           onModeChange={setMode}
           canHero={anyFullSite}
