@@ -61,13 +61,13 @@ const HERO_ARCHETYPES = [
 const NAV_STYLES = [
   "Minimal top bar: wordmark left, three links right, no button at all.",
   "Centered wordmark with links split symmetrically either side of it.",
-  "Vertical left rail on desktop carrying wordmark and links stacked, collapsing to a bar under 900px.",
+  "Vertical left rail on desktop carrying wordmark and links stacked, collapsing to a bar under 900px. The content area must subtract the rail's width from its own grid so its columns stay comfortably readable.",
   "Wide bar: wordmark left, links centered, a text-only CTA right with a hairline underline.",
   "Bar with a thin metadata strip above it carrying location, hours, or availability.",
   "Bar that hides on scroll down and returns on scroll up.",
   "Oversized wordmark set at heading scale with links small and tucked to the baseline beneath it.",
   "Boxed nav: the bar sits inset from the page edges with a visible border, floating over content.",
-  "Split nav: wordmark alone at top left, and a separate fixed link cluster pinned bottom right.",
+  "Split nav: wordmark alone at top left, and a separate fixed link cluster pinned bottom right, neither overlapping page content.",
   "Nav with a persistent left-aligned index of section numbers that highlights the current section on scroll.",
   "Full-width bar with a bottom hairline, wordmark left, and a single link plus a bordered CTA right.",
 ] as const;
