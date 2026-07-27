@@ -16,7 +16,9 @@
       "Bash(kill 16537)",
       "Bash(npx tsc *)",
       "Bash(echo \"TSC EXIT: $?\")",
-      "Bash(curl -s --max-time 120 -o /dev/null -w \"projects: %{http_code}\\\\n\" http://localhost:3000/projects)"
+      "Bash(curl -s --max-time 120 -o /dev/null -w \"projects: %{http_code}\\\\n\" http://localhost:3000/projects)",
+      "Bash(sort -nrk 3)",
+      "Bash(awk '{printf \"%s%% %s\\\\n\", $3, substr\\($0, index\\($0,$11\\), 90\\)}')"
     ],
     "additionalDirectories": [
       "/Users/praful/Desktop/open/src/app"
