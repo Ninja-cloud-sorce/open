@@ -41,6 +41,8 @@ const LANE_LABEL: Record<DesignLane, string> = {
  */
 const SITE_RULES_BUDGET = 40000;
 const SPEC_RULES_BUDGET = 9000;
+/** Last-resort budget when even the spec budget trips a provider token limit. */
+const MINIMAL_RULES_BUDGET = 2500;
 
 /**
  * The Taste-Skill rulebook is ~87K characters and its most load-bearing sections
@@ -182,7 +184,30 @@ async function generateLaneSpecs(
   parentTokens?: string | null,
   parentStyle?: string | null
 ): Promise<SpecItem[]> {
-  const rules = await loadLaneRules(lane, SPEC_RULES_BUDGET);
+  try {
+    return await requestLaneSpecs(lane, project, SPEC_RULES_BUDGET, parentTokens, parentStyle);
+  } catch (error) {
+    // A token-limit rejection is deterministic: retrying the same prompt fails
+    // identically. Shed rulebook context and try once more rather than losing
+    // the entire lane, which is what happened when Groq returned 413.
+    if (!isTokenLimitError(error)) throw error;
+    return requestLaneSpecs(lane, project, MINIMAL_RULES_BUDGET, parentTokens, parentStyle);
+  }
+}
+
+function isTokenLimitError(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return /\b413\b|request too large|tokens per minute|context length|too many tokens/i.test(text);
+}
+
+async function requestLaneSpecs(
+  lane: DesignLane,
+  project: ProjectContext,
+  budget: number,
+  parentTokens?: string | null,
+  parentStyle?: string | null
+): Promise<SpecItem[]> {
+  const rules = await loadLaneRules(lane, budget);
 
   const refining = parentTokens
     ? `\n\nThis is a REFINEMENT round. The user picked "${parentStyle}" with these locked tokens:\n${parentTokens}\n\nKeep that visual identity - same font families, same palette, same voice - while still honouring each design language below. Vary composition, hierarchy, and density rather than hue and typeface.`
