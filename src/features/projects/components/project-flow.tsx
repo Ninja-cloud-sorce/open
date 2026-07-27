@@ -19,29 +19,24 @@ import {
   useToggleVariantFavorite,
 } from "@/features/projects/queries";
 
-/** `next` is the pane the following pick lands in — alternating means two clicks
- *  always replace the whole comparison. */
+/** The side a pick lands on is decided by its rulebook, never by click order:
+ *  Impeccable is always the left pane, Taste-Skill V2 always the right. */
 interface Pair {
   left: string | null;
   right: string | null;
-  next: "left" | "right";
 }
 
-const EMPTY_PAIR: Pair = { left: null, right: null, next: "left" };
+const EMPTY_PAIR: Pair = { left: null, right: null };
 
-/** An explicit pick wins; otherwise show one direction from each rulebook. A pick
- *  that belongs to another round simply falls through to the default. */
+/** An explicit pick wins; otherwise show the first direction from each rulebook.
+ *  A pick belonging to another round falls through to that default. */
 function resolvePair(round: VariantRoundDTO | null, pair: Pair) {
   if (!round) return { left: null, right: null };
-  const find = (id: string | null) => (id ? round.variants.find((v) => v.id === id) ?? null : null);
-  const left =
-    find(pair.left) ?? round.variants.find((v) => v.lane === "IMPECCABLE") ?? round.variants[0] ?? null;
-  const right =
-    find(pair.right) ??
-    round.variants.find((v) => v.lane === "TASTE_SKILL") ??
-    round.variants.find((v) => v.id !== left?.id) ??
-    null;
-  return { left, right };
+  const pick = (id: string | null, lane: "IMPECCABLE" | "TASTE_SKILL") => {
+    const chosen = id ? round.variants.find((v) => v.id === id && v.lane === lane) : null;
+    return chosen ?? round.variants.find((v) => v.lane === lane) ?? null;
+  };
+  return { left: pick(pair.left, "IMPECCABLE"), right: pick(pair.right, "TASTE_SKILL") };
 }
 
 export function ProjectFlow({ projectId }: { projectId: string }) {
@@ -78,11 +73,10 @@ export function ProjectFlow({ projectId }: { projectId: string }) {
   const anyFullSite = rounds.some((r) => r.variants.some((v) => v.fullSiteHtml));
 
   function handlePick(variantId: string) {
-    if (variantId === left?.id || variantId === right?.id) return;
+    const variant = activeRound?.variants.find((v) => v.id === variantId);
+    if (!variant) return;
     setPair((prev) =>
-      prev.next === "left"
-        ? { left: variantId, right: right?.id ?? null, next: "right" }
-        : { left: left?.id ?? null, right: variantId, next: "left" }
+      variant.lane === "IMPECCABLE" ? { ...prev, left: variantId } : { ...prev, right: variantId }
     );
   }
 
