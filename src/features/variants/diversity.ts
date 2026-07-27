@@ -1,15 +1,20 @@
 /**
  * The Diversity Engine.
  *
- * Every generated site used to walk the same fixed list of eight sections in the
- * same order, with layout left implicit in the prompt. That guaranteed sameness
- * at the code level, no matter how the prompt was worded.
+ * Two problems this solves, both of which produced sites that felt identical
+ * however the prompt was worded:
  *
- * This module makes the *architecture* of each variant an explicit, varied input:
- * hero archetype, navigation, grid, rhythm, density, and a section plan that
- * differs per variant. It is seeded off the variant id, so a regeneration of the
- * same variant is reproducible while its neighbours stay distinct — and it costs
- * zero LLM calls.
+ * 1. Architecture was hardcoded. Every site walked the same eight sections in
+ *    the same order, so no direction could differ structurally.
+ * 2. Components were never specified at all. Nothing told the model how the
+ *    navbar, buttons, links, headings, images, or transitions should differ, so
+ *    it reached for the same defaults every time. That is what makes ten
+ *    variants read as one design.
+ *
+ * Selection is *spread across the round*, not sampled independently. Ten
+ * independent draws from a pool of six collide constantly; walking the pool by a
+ * stride coprime to its length guarantees consecutive variants differ, and that
+ * every option gets used before any repeats.
  */
 
 /** FNV-1a. Small, dependency-free, and good enough to spread ids across pools. */
@@ -22,31 +27,21 @@ function hashSeed(seed: string): number {
   return hash >>> 0;
 }
 
-/** mulberry32 — deterministic PRNG so the same seed always yields the same brief. */
-function makeRandom(seed: number) {
-  let state = seed;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
 }
 
-type Random = () => number;
-
-function pick<T>(random: Random, options: readonly T[]): T {
-  return options[Math.floor(random() * options.length)];
-}
-
-function pickSome<T>(random: Random, options: readonly T[], count: number): T[] {
-  const pool = [...options];
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-  return pool.slice(0, count);
+/**
+ * Walks `pool` by a stride coprime to its length, starting at a per-pool offset.
+ * Coprimality means the walk visits every entry before repeating, so a round of
+ * ten variants uses ten different options whenever the pool is large enough.
+ */
+function spread<T>(pool: readonly T[], variantIndex: number, salt: string, roundSeed: string): T {
+  const h = hashSeed(roundSeed + salt);
+  const offset = h % pool.length;
+  let stride = 1 + ((h >>> 8) % Math.max(1, pool.length - 1));
+  while (gcd(stride, pool.length) !== 1) stride++;
+  return pool[(offset + variantIndex * stride) % pool.length];
 }
 
 const HERO_ARCHETYPES = [
@@ -59,15 +54,70 @@ const HERO_ARCHETYPES = [
   "Horizontal hero: content laid along a band that continues past the right edge, implying more beyond the fold.",
   "Layered hero: overlapping planes at different depths, with type crossing the boundary between them.",
   "Stacked-statement hero: three short declarative lines at descending scale, each on its own baseline, image below the fold.",
+  "Inset hero: a full-bleed image with the type block inset as a solid panel overlapping its lower-left corner.",
+  "Ledger hero: the headline paired with a column of concrete facts (established, location, specialisms) set as a labelled list.",
 ] as const;
 
 const NAV_STYLES = [
-  "A minimal top bar: wordmark left, three links right, no CTA button.",
-  "A centered wordmark with links split symmetrically either side.",
-  "A left-aligned rail with the wordmark and links stacked vertically on desktop, collapsing to a bar on mobile.",
-  "A wide bar with the wordmark left, links center, and a text-only CTA right with a hairline underline.",
-  "A bar that carries a thin metadata line above it: location, hours, or availability.",
-  "A minimal bar that hides on scroll down and returns on scroll up.",
+  "Minimal top bar: wordmark left, three links right, no button at all.",
+  "Centered wordmark with links split symmetrically either side of it.",
+  "Vertical left rail on desktop carrying wordmark and links stacked, collapsing to a bar under 900px.",
+  "Wide bar: wordmark left, links centered, a text-only CTA right with a hairline underline.",
+  "Bar with a thin metadata strip above it carrying location, hours, or availability.",
+  "Bar that hides on scroll down and returns on scroll up.",
+  "Oversized wordmark set at heading scale with links small and tucked to the baseline beneath it.",
+  "Boxed nav: the bar sits inset from the page edges with a visible border, floating over content.",
+  "Split nav: wordmark alone at top left, and a separate fixed link cluster pinned bottom right.",
+  "Nav with a persistent left-aligned index of section numbers that highlights the current section on scroll.",
+  "Full-width bar with a bottom hairline, wordmark left, and a single link plus a bordered CTA right.",
+] as const;
+
+const BUTTON_STYLES = [
+  "Solid rectangular buttons, zero radius, no shadow. Weight comes from the fill alone.",
+  "Outlined buttons: 1px border, transparent fill, background inverts on hover.",
+  "Text-only buttons with a thick underline that slides in from the left on hover.",
+  "Pill buttons, fully rounded, generous horizontal padding, flat fill.",
+  "Small-caps buttons with wide letterspacing and a hairline border, set at label scale.",
+  "Buttons with a persistent trailing arrow that translates right on hover, no border.",
+  "Two-tone buttons: solid fill with an offset hard-edged shadow block behind, shifting on press.",
+  "Oversized buttons that span a grid column, with the label left-aligned and an arrow at the far right.",
+  "Softly rounded buttons with a subtle inner border and no drop shadow.",
+  "Bracketed buttons: label wrapped in typographic brackets, no fill, no border.",
+] as const;
+
+const LINK_STYLES = [
+  "Inline links carry a permanent underline that thickens on hover.",
+  "Links have no underline until hover, when one draws in from the left.",
+  "Links shift color only, never underline.",
+  "Links are set in small caps with wide tracking, distinct from body text.",
+  "Links carry a trailing arrow glyph that nudges on hover.",
+] as const;
+
+const HEADING_TREATMENTS = [
+  "Headings set tight, negative letterspacing, with hierarchy carried by weight rather than size.",
+  "Headings at large size but light weight, with generous leading.",
+  "Headings in small caps with wide tracking, sized close to body copy.",
+  "Headings paired with a small label above them in mono at 10-11px.",
+  "Headings that span the full measure and wrap deliberately across two or three lines.",
+  "Headings with the key noun set in an italic or contrasting cut of the same family.",
+  "Headings hung into the left margin, outdented past the body text they introduce.",
+] as const;
+
+const IMAGE_TREATMENTS = [
+  "Images run full-bleed to the viewport edge with no radius and no border.",
+  "Images sit inside the grid with generous margin, each carrying a small caption beneath.",
+  "Images are duotoned toward the palette so they read as part of the design system.",
+  "Images are cropped to tall portrait ratios and set in an uneven row.",
+  "Images sit in a strict square grid with hairline gutters between them.",
+  "A single large image per section, alternating which side of the grid it occupies.",
+] as const;
+
+const SECTION_TRANSITIONS = [
+  "Sections separated by a full-width hairline rule and nothing else.",
+  "Sections alternate between the base background and a tinted surface.",
+  "Sections separated purely by whitespace, no rules or color shifts.",
+  "Each section opens with a small mono label pinned to the left margin.",
+  "Sections butt directly against each other with a hard color edge between them.",
 ] as const;
 
 const GRID_SYSTEMS = [
@@ -76,6 +126,8 @@ const GRID_SYSTEMS = [
   "A Swiss modular grid: consistent columns and rows, content placed in deliberate modules with empty cells left empty.",
   "A wide single-column measure with generous side margins, broken occasionally by full-bleed elements.",
   "A two-track grid where a narrow sidebar column carries metadata alongside a wide content column.",
+  "A broken grid where elements deliberately overhang their column edges.",
+  "A dense 16-column grid supporting fine-grained alignment and small type.",
 ] as const;
 
 const RHYTHM = [
@@ -90,6 +142,7 @@ const CARD_TREATMENTS = [
   "Blocks distinguished only by a background tint shift, no border.",
   "Cards of deliberately unequal size, forming an asymmetric composition.",
   "Content in a bordered table-like structure with visible column rules.",
+  "Numbered blocks laid out as a vertical list, each with a rule above it.",
 ] as const;
 
 const DENSITY = [
@@ -100,15 +153,19 @@ const DENSITY = [
 
 const MOTION_LANGUAGE = [
   "No motion at all beyond hover states. Stillness is the point.",
-  "Slow reveals on scroll using IntersectionObserver, staggered by 60ms, opacity and small translate only.",
-  "A sticky section where content changes as the user scrolls past a pinned element.",
-  "One horizontal-scrolling band, everything else static.",
+  "Slow reveals on scroll via IntersectionObserver, staggered 60ms, opacity and small translate only.",
+  "A sticky section where pinned content changes as the user scrolls past it.",
+  "One horizontal-scrolling band; everything else static.",
+  "Hover-only motion: images scale slightly within their frame, buttons shift, nothing animates on scroll.",
+  "A single marquee or ticker line that runs continuously, with the rest of the page still.",
+  "Counters and figures that count up once when scrolled into view, nothing else animated.",
 ] as const;
 
 const FOOTER_STYLES = [
-  "A large footer that fills most of a screen: oversized wordmark, columns of links, contact details.",
+  "A large footer filling most of a screen: oversized wordmark, columns of links, contact details.",
   "A single-line footer: legal text left, three links right, nothing else.",
   "A footer built as a final content block with a newsletter or contact prompt above the legal line.",
+  "A footer laid out as a table of departments, addresses, and hours.",
 ] as const;
 
 /** Each entry is what the section should contain, not what to call it. */
@@ -141,11 +198,20 @@ const ORDER_STRATEGIES: readonly (readonly SectionId[])[] = [
   ["stats", "proof", "problem", "solution", "services", "pricing", "faq", "cta"],
   ["casework", "process", "team", "services", "manifesto", "faq", "proof", "cta"],
   ["problem", "manifesto", "services", "gallery", "process", "proof", "cta", "faq"],
+  ["manifesto", "services", "process", "casework", "stats", "faq", "team", "cta"],
+  ["problem", "services", "casework", "proof", "team", "process", "pricing", "cta"],
+  ["gallery", "manifesto", "services", "casework", "proof", "faq", "stats", "cta"],
+  ["services", "problem", "solution", "stats", "casework", "proof", "faq", "cta"],
 ];
 
 export interface DiversityBrief {
   hero: string;
   nav: string;
+  buttons: string;
+  links: string;
+  headings: string;
+  images: string;
+  transitions: string;
   grid: string;
   rhythm: string;
   cards: string;
@@ -155,49 +221,61 @@ export interface DiversityBrief {
   sections: { id: SectionId; brief: string }[];
 }
 
-export function buildDiversityBrief(seed: string): DiversityBrief {
-  const random = makeRandom(hashSeed(seed));
+/**
+ * @param roundSeed  shared across a round, so its variants coordinate rather than collide
+ * @param variantIndex position in the round (0-9), which drives the spread
+ */
+export function buildDiversityBrief(roundSeed: string, variantIndex: number): DiversityBrief {
+  const at = <T>(pool: readonly T[], salt: string) => spread(pool, variantIndex, salt, roundSeed);
 
-  const strategy = pick(random, ORDER_STRATEGIES);
-  // 5-7 content sections, so page length varies too rather than always being eight.
-  const count = 5 + Math.floor(random() * 3);
-  const chosen = new Set(pickSome(random, strategy, count));
-  // The closing CTA earns its place on every page.
-  chosen.add("cta");
+  const strategy = at(ORDER_STRATEGIES, "order");
+  // 5-7 content sections, so page length varies rather than always being eight.
+  const count = 5 + (hashSeed(roundSeed + "count" + variantIndex) % 3);
+  const kept = new Set(strategy.slice(0, count));
+  kept.add("cta");
 
   return {
-    hero: pick(random, HERO_ARCHETYPES),
-    nav: pick(random, NAV_STYLES),
-    grid: pick(random, GRID_SYSTEMS),
-    rhythm: pick(random, RHYTHM),
-    cards: pick(random, CARD_TREATMENTS),
-    density: pick(random, DENSITY),
-    motion: pick(random, MOTION_LANGUAGE),
-    footer: pick(random, FOOTER_STYLES),
-    sections: strategy
-      .filter((id) => chosen.has(id))
-      .map((id) => ({ id, brief: CONTENT_SECTIONS[id] })),
+    hero: at(HERO_ARCHETYPES, "hero"),
+    nav: at(NAV_STYLES, "nav"),
+    buttons: at(BUTTON_STYLES, "buttons"),
+    links: at(LINK_STYLES, "links"),
+    headings: at(HEADING_TREATMENTS, "headings"),
+    images: at(IMAGE_TREATMENTS, "images"),
+    transitions: at(SECTION_TRANSITIONS, "transitions"),
+    grid: at(GRID_SYSTEMS, "grid"),
+    rhythm: at(RHYTHM, "rhythm"),
+    cards: at(CARD_TREATMENTS, "cards"),
+    density: at(DENSITY, "density"),
+    motion: at(MOTION_LANGUAGE, "motion"),
+    footer: at(FOOTER_STYLES, "footer"),
+    sections: strategy.filter((id) => kept.has(id)).map((id) => ({ id, brief: CONTENT_SECTIONS[id] })),
   };
 }
 
 /** Renders the brief as the architectural half of the generation prompt. */
 export function diversityPrompt(brief: DiversityBrief): string {
   const sections = [
-    "1. navigation - " + brief.nav,
-    "2. hero - " + brief.hero,
+    `1. navigation - ${brief.nav}`,
+    `2. hero - ${brief.hero}`,
     ...brief.sections.map((s, i) => `${i + 3}. ${s.id} - ${s.brief}`),
     `${brief.sections.length + 3}. footer - ${brief.footer}`,
   ].join("\n");
 
-  return `ARCHITECTURE (this is the structure to build - it is specific to this direction and must not be swapped for a generic layout):
+  return `ARCHITECTURE - this structure is specific to this direction. Build it exactly. Do not add sections, do not reorder, and do not fall back to a centered hero followed by three equal cards.
 
 ${sections}
 
-Grid: ${brief.grid}
-Vertical rhythm: ${brief.rhythm}
-Content blocks: ${brief.cards}
-Density: ${brief.density}
-Motion: ${brief.motion}
+COMPONENT DESIGN - these are the details that distinguish this direction from the nine it is judged against. A generic navbar or a default button makes the whole page interchangeable, so treat each of these as a requirement:
+- Buttons: ${brief.buttons}
+- Links: ${brief.links}
+- Headings: ${brief.headings}
+- Images: ${brief.images}
+- Section transitions: ${brief.transitions}
+- Content blocks: ${brief.cards}
 
-Follow this architecture exactly. Do not add a section that is not listed, do not reorder them, and do not fall back to a centered-hero-then-three-cards layout.`;
+COMPOSITION
+- Grid: ${brief.grid}
+- Vertical rhythm: ${brief.rhythm}
+- Density: ${brief.density}
+- Motion: ${brief.motion}`;
 }

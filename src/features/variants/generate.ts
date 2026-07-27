@@ -274,10 +274,11 @@ async function generatePreview(
   lane: DesignLane,
   project: ProjectContext,
   spec: SpecItem,
-  seed: string
+  roundSeed: string,
+  variantIndex: number
 ): Promise<string> {
   const rules = await loadLaneRules(lane);
-  const architecture = diversityPrompt(buildDiversityBrief(seed));
+  const architecture = diversityPrompt(buildDiversityBrief(roundSeed, variantIndex));
   const collection = COLLECTIONS.find((c) => c.name === spec.styleName);
 
   const text = await callLLM({
@@ -457,7 +458,13 @@ export async function generateRound(roundId: string) {
           });
 
           try {
-            const previewHtml = await generatePreview(lane, project, spec, variant.id);
+            const previewHtml = await generatePreview(
+              lane,
+              project,
+              spec,
+              roundId,
+              variantSlot(lane, variant.order)
+            );
             await db.variant.update({
               where: { id: variant.id },
               data: { status: "DONE", error: null, previewHtml },
