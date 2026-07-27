@@ -110,9 +110,6 @@ export function VariantBar({
     return () => window.removeEventListener("keydown", onKey);
   }, [ordered, onPick]);
 
-  const leftLane = ordered.find((v) => v.id === leftId)?.lane;
-  const rightLane = ordered.find((v) => v.id === rightId)?.lane;
-
   return (
     <div className="flex items-center gap-3 overflow-x-auto border-b border-border px-4 py-1.5">
       {rounds.length > 1 && (
@@ -145,6 +142,9 @@ export function VariantBar({
               laneIndex > 0 && "border-l border-border pl-3"
             )}
           >
+            <span className="mr-1 font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground/50">
+              {lane === "IMPECCABLE" ? "L" : "R"}
+            </span>
             {laneVariants.map((variant) => (
               <Chip
                 key={variant.id}
@@ -160,9 +160,7 @@ export function VariantBar({
 
       <div className="ml-auto flex shrink-0 items-center gap-3 pl-3">
         <span className="hidden font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70 xl:inline">
-          {leftLane ? `Left ${LANE_LABEL[leftLane]}` : "Left —"}
-          {" · "}
-          {rightLane ? `Right ${LANE_LABEL[rightLane]}` : "Right —"}
+          Left = {LANE_LABEL.IMPECCABLE} · Right = {LANE_LABEL.TASTE_SKILL} · Keys 1–0
         </span>
         {canHero && (
           <button
