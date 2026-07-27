@@ -1,7 +1,7 @@
 import { createUserContent, createPartFromBase64, Type } from "@google/genai";
 import { db } from "@/lib/db";
 import { humanizeAiError } from "@/lib/ai-errors";
-import { callGemini, geminiClient, EMBEDDING_MODEL } from "@/lib/gemini";
+import { callLLM, geminiClient, EMBEDDING_MODEL } from "@/lib/llm";
 
 const EMBEDDING_DIMENSIONS = 768;
 
@@ -193,7 +193,7 @@ function guessMimeType(path: string) {
 async function runVisionAnalysis(base64: string, mimeType: string): Promise<AnalysisResult> {
   // Goes through callGemini so a busy minute retries instead of leaving the
   // item permanently uncategorized.
-  const text = await callGemini({
+  const text = await callLLM({
     contents: createUserContent([ANALYSIS_PROMPT, createPartFromBase64(base64, mimeType)]),
     config: { responseMimeType: "application/json", responseSchema: RESPONSE_SCHEMA },
   });
@@ -229,7 +229,7 @@ export async function analyzeInspirationItem(itemId: string) {
 
   const imagePath = item.type === "VIDEO" ? item.posterUrl : item.fileUrl;
 
-  if (!process.env.GEMINI_API_KEY || !imagePath) {
+  if ((!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY) || !imagePath) {
     await db.inspirationAnalysis.upsert({
       where: { itemId },
       create: { itemId, status: "SKIPPED" },

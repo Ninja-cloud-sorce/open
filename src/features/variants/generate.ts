@@ -1,15 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import { db } from "@/lib/db";
 import { humanizeAiError } from "@/lib/ai-errors";
+import { callLLM } from "@/lib/llm";
 import type { DesignLane } from "@/generated/prisma/enums";
 
-/** Authoring models in descending capability. Free-tier keys have per-model quota
- *  that varies (Pro tiers often sit at limit: 0), so we fall through on 429/404
- *  rather than hard-failing the whole round. */
-const AUTHOR_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
-const FAST_MODEL = "gemini-flash-latest";
 
 /** Statically scoped so bundler file-tracing stays confined to this subfolder. */
 const SKILLS_DIR = path.join(process.cwd(), ".agents", "skills");
@@ -98,46 +94,6 @@ interface SpecItem {
   designTokens: string;
 }
 
-function ai() {
-  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-}
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Free-tier quota is per-model and per-minute, so a burst of parallel calls
- *  gets 429s even when nothing is actually wrong. Walk the model list first,
- *  then back off and retry rather than failing the variant. */
-async function authorContent(params: {
-  contents: string;
-  config?: Record<string, unknown>;
-}): Promise<string> {
-  const MAX_ROUNDS = 3;
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt < MAX_ROUNDS; attempt++) {
-    for (const model of AUTHOR_MODELS) {
-      try {
-        const response = await ai().models.generateContent({
-          model,
-          contents: params.contents,
-          ...(params.config ? { config: params.config } : {}),
-        });
-        const text = response.text ?? "";
-        if (text.trim()) return text;
-      } catch (error) {
-        lastError = error;
-        const message = String((error as Error)?.message ?? error);
-        // Availability/quota is retryable; anything else is a genuine failure.
-        if (!message.includes("429") && !message.includes("404")) throw error;
-      }
-    }
-    // Every model refused — wait out the per-minute window before trying again.
-    if (attempt < MAX_ROUNDS - 1) await sleep(20_000 * (attempt + 1));
-  }
-
-  throw lastError ?? new Error("No available model returned a response.");
-}
-
 /** Runs tasks with bounded concurrency. Ten simultaneous generations exhaust a
  *  free-tier minute instantly; a small pool keeps the round inside quota. */
 async function mapWithConcurrency<T>(items: T[], limit: number, task: (item: T) => Promise<void>) {
@@ -164,7 +120,7 @@ async function generateLaneSpecs(
     ? `\n\nThis is a REFINEMENT round. The user picked the direction "${parentStyle}" with these locked tokens:\n${parentTokens}\n\nAll 5 new options must keep that same visual identity — same font families, same palette, same overall voice. Vary only composition, hierarchy, density, and structural treatment. Do NOT introduce new fonts or new hues.`
     : `\n\nThese 5 must be genuinely different from each other — different type pairings, different palettes, different structural personalities. Not 5 shades of one idea.`;
 
-  const text = await authorContent({
+  const text = await callLLM({
     contents: `You are a design director working under the following rulebook. Follow it closely — it is the house style you are accountable to.
 
 === RULEBOOK: ${LANE_LABEL[lane]} ===
@@ -178,10 +134,33 @@ Produce exactly 5 design directions. For each: a short "styleName" (1-3 words), 
 
 ${TOKENS_SHAPE}`,
     config: { responseMimeType: "application/json", responseSchema: SPEC_SCHEMA },
+    length: "short",
   });
 
-  const items: SpecItem[] = JSON.parse(text || "[]");
-  return items.slice(0, 5);
+  return parseSpecList(text).slice(0, 5);
+}
+
+/**
+ * Providers disagree on JSON array shape: Gemini's responseSchema returns a bare
+ * array, while OpenAI-compatible `json_object` mode is required to return an
+ * object, so those providers wrap it (`{"directions": [...]}`). Accept either.
+ */
+function parseSpecList(text: string): SpecItem[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text || "[]");
+  } catch {
+    return [];
+  }
+
+  if (Array.isArray(parsed)) return parsed as SpecItem[];
+
+  if (parsed && typeof parsed === "object") {
+    const firstArray = Object.values(parsed as Record<string, unknown>).find(Array.isArray);
+    if (firstArray) return firstArray as SpecItem[];
+  }
+
+  return [];
 }
 
 const SITE_RULES = `Output a COMPLETE self-contained HTML document starting with <!DOCTYPE html>.
@@ -195,7 +174,7 @@ const SITE_RULES = `Output a COMPLETE self-contained HTML document starting with
 /** Stage B (preview) — one representative screen per variant. */
 async function generatePreview(lane: DesignLane, project: ProjectContext, spec: SpecItem): Promise<string> {
   const rules = await loadLaneRules(lane);
-  const text = await authorContent({
+  const text = await callLLM({
     contents: `You are a design director working under this rulebook:
 
 === RULEBOOK: ${LANE_LABEL[lane]} ===
@@ -234,10 +213,10 @@ export async function expandToFullSite(variantId: string) {
     include: { round: { include: { project: { include: { references: { include: { analysis: true } } } } } } },
   });
 
-  if (!process.env.GEMINI_API_KEY) {
+  if (!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY) {
     await db.variant.update({
       where: { id: variantId },
-      data: { status: "ERROR", error: "GEMINI_API_KEY is not set. Add it to .env to generate." },
+      data: { status: "ERROR", error: "No LLM key configured. Set GEMINI_API_KEY or GROQ_API_KEY in .env." },
     });
     return;
   }
@@ -248,7 +227,7 @@ export async function expandToFullSite(variantId: string) {
     const project = toContext(variant.round.project);
     const rules = await loadLaneRules(variant.lane);
 
-    const draftText = await authorContent({
+    const draftText = await callLLM({
       contents: `You are a design director working under this rulebook:
 
 === RULEBOOK: ${LANE_LABEL[variant.lane]} ===
@@ -272,10 +251,13 @@ ${SITE_RULES}`,
 
     const html = stripFences(draftText);
 
-    // Self-critique pass — the single biggest quality lever available without
-    // an agentic screenshot loop.
-    const revisedText = await authorContent({
-      contents: `Review this generated site against the rulebook below and return an IMPROVED version.
+    // Self-critique pass — a real quality lever, but it re-emits the whole
+    // document, so it can truncate where the draft did not. Never let a failed
+    // revision cost us a good draft.
+    let finalHtml = html;
+    try {
+      const revisedText = await callLLM({
+        contents: `Review this generated site against the rulebook below and return an IMPROVED version.
 
 === RULEBOOK: ${LANE_LABEL[variant.lane]} ===
 ${rules}
@@ -286,9 +268,11 @@ Check specifically: typographic hierarchy and scale, spacing rhythm, section lay
 Return ONLY the corrected complete HTML document — no commentary.
 
 ${html}`,
-    });
-
-    const finalHtml = stripFences(revisedText) || html;
+      });
+      finalHtml = stripFences(revisedText);
+    } catch {
+      // Keep the draft; it already passed the renderable check.
+    }
 
     await db.variant.update({
       where: { id: variantId },
@@ -312,10 +296,10 @@ export async function generateRound(roundId: string) {
     },
   });
 
-  if (!process.env.GEMINI_API_KEY) {
+  if (!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY) {
     await db.variant.updateMany({
       where: { roundId },
-      data: { status: "ERROR", error: "GEMINI_API_KEY is not set. Add it to .env to generate." },
+      data: { status: "ERROR", error: "No LLM key configured. Set GEMINI_API_KEY or GROQ_API_KEY in .env." },
     });
     return;
   }
@@ -386,13 +370,14 @@ export async function generateRound(roundId: string) {
 
 /** Suggests a starting subject line for hero image generation from project context. */
 export async function suggestHeroSubject(project: ProjectContext): Promise<string> {
-  if (!process.env.GEMINI_API_KEY) return "";
+  if (!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY) return "";
   try {
-    const response = await ai().models.generateContent({
-      model: FAST_MODEL,
+    const text = await callLLM({
       contents: `In one short sentence, describe the ideal hero photograph for this business. Subject and mood only, no camera jargon.\n\n${projectBrief(project)}`,
+      length: "short",
+      maxRounds: 1,
     });
-    return (response.text ?? "").trim();
+    return text.trim();
   } catch {
     return "";
   }
@@ -419,9 +404,52 @@ function toContext(project: {
   };
 }
 
-/** Models often wrap HTML in markdown fences despite instructions. */
+/**
+ * Normalizes whatever a provider returns into a renderable document, and
+ * refuses anything that would render blank.
+ *
+ * Models differ in how well they follow output instructions: some wrap in
+ * markdown fences, some add a sentence of preamble, some omit the doctype
+ * (silently dropping the iframe into quirks mode), and some truncate mid-CSS
+ * when they hit an output ceiling. That last case is the dangerous one — it
+ * looks healthy by character count while containing no <body> at all — so it
+ * throws rather than being stored.
+ */
 function stripFences(text: string) {
-  const trimmed = text.trim();
-  const match = trimmed.match(/^```(?:html)?\s*\n([\s\S]*?)\n```$/);
-  return (match ? match[1] : trimmed).trim();
+  let html = text.trim();
+
+  const fenced = html.match(/```(?:html)?\s*\n([\s\S]*?)```/);
+  if (fenced) html = fenced[1].trim();
+
+  const start = html.search(/<!DOCTYPE html|<html[\s>]/i);
+  if (start > 0) html = html.slice(start).trim();
+
+  if (html && !/^<!DOCTYPE/i.test(html)) html = `<!DOCTYPE html>\n${html}`;
+
+  assertRenderable(html);
+  return html;
+}
+
+/** A page with no closed body, or with a body containing no elements, renders
+ *  as an empty screen. Fail loudly instead. */
+function assertRenderable(html: string) {
+  if (!html) throw new Error("Model returned an empty document.");
+
+  if (!/<\/html>/i.test(html) || !/<\/body>/i.test(html)) {
+    throw new Error("Model output was cut off before the document finished — try again.");
+  }
+
+  const body = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? "";
+  if (!/<[a-z]/i.test(body)) {
+    throw new Error("Model produced styles but no page content — try again.");
+  }
+
+  // Stylesheet text outside a <style> block renders as visible gibberish on the
+  // page. Strip real style/script blocks first, then look for leftover CSS.
+  const visible = body
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "");
+  if (/[.#][\w-]+\s*\{[^}]*(?:display|color|margin|padding|font)\s*:/i.test(visible)) {
+    throw new Error("Model leaked raw CSS into the page body — try again.");
+  }
 }

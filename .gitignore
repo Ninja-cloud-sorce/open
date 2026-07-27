@@ -55,3 +55,7 @@ next-env.d.ts
 /.windsurf/
 
 /src/generated/prisma
+
+# agent scratch files — never part of the project
+/*-tmp.mjs
+/*-tmp.ts
