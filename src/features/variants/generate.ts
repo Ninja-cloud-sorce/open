@@ -177,6 +177,8 @@ ${projectBrief(project)}${refining}
 
 Produce exactly 5 design directions. For each: a short "styleName" (1-3 words), a one-sentence "rationale" tying it to the brief, and "designTokens".
 
+Token constraints: never Inter, never pure #000000 or #FFFFFF for backgrounds, and no oversaturated accent. Pick typefaces with actual character that suit this specific business.
+
 ${TOKENS_SHAPE}`,
     config: { responseMimeType: "application/json", responseSchema: SPEC_SCHEMA },
     length: "short",
@@ -238,7 +240,22 @@ const SLOP_BANS = `These are the signatures that make a page read as AI-generate
 - No poetic section labels ("Field notes", "From the bench", "On our desks"). Plain functional labels.
 - Vary the rhythm between sections: alternate background weight, alignment, and density. Never stack eight centered blocks.`;
 
-/** Stage B (preview) — one representative screen per variant. */
+const SECTIONS = [
+  "sticky header with nav and a primary CTA",
+  "hero with headline, supporting paragraph, and two CTAs",
+  "services or features section (3-6 items, laid out per the design direction)",
+  "a proof section appropriate to this business (testimonials, credentials, stats, or case highlights)",
+  "pricing or engagement/booking section if it fits the business, otherwise a detailed 'how it works' section",
+  "FAQ section (4-6 questions)",
+  "closing CTA band",
+  "footer with navigation columns, contact details, and legal line",
+];
+
+const SECTION_LIST = SECTIONS.map((s, i) => `${i + 1}. ${s}`).join("\n");
+
+/** Stage B (preview) — a complete site per variant. Previously this asked for
+ *  only a hero plus one band, which is why directions could not be judged as
+ *  whole websites. */
 async function generatePreview(lane: DesignLane, project: ProjectContext, spec: SpecItem): Promise<string> {
   const rules = await loadLaneRules(lane);
   const text = await callLLM({
@@ -251,27 +268,21 @@ ${rules}
 Brief:
 ${projectBrief(project)}
 
-Design direction: "${spec.styleName}" — ${spec.rationale}
-Design tokens (bind these exactly):
+Design direction: "${spec.styleName}" - ${spec.rationale}
+Design tokens (bind these exactly, every section shares them):
 ${spec.designTokens}
 
-Build the landing page's opening screen: header/nav, hero (headline, supporting line, primary CTA), and one supporting band beneath it. This is a preview used to judge the direction, so make the visual identity unmistakable.
+Build the COMPLETE marketing site as one long page containing all of these sections in order:
+${SECTION_LIST}
 
-${SITE_RULES}`,
+Every section must read as part of one designed system: the same type scale, spacing rhythm, and color roles throughout. This page is judged against nine others, so the visual identity has to be unmistakable and specific to this direction.
+
+${SITE_RULES}
+
+${SLOP_BANS}`,
   });
   return normalizeHtmlDocument(text);
 }
-
-const SECTIONS = [
-  "sticky header with nav and a primary CTA",
-  "hero with headline, supporting paragraph, and two CTAs",
-  "services or features section (3-6 items, laid out per the design direction)",
-  "a proof section appropriate to this business (testimonials, credentials, stats, or case highlights)",
-  "pricing or engagement/booking section if it fits the business, otherwise a detailed 'how it works' section",
-  "FAQ section (4-6 questions)",
-  "closing CTA band",
-  "footer with navigation columns, contact details, and legal line",
-];
 
 /** Stage B (full) — the entire multi-section site against locked tokens. */
 export async function expandToFullSite(variantId: string) {
@@ -309,11 +320,13 @@ Design tokens (bind these exactly — every section must share them):
 ${variant.designTokens}
 
 Build the COMPLETE marketing site as one long page containing all of these sections in order:
-${SECTIONS.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+${SECTION_LIST}
 
-Every section must feel like part of the same designed system: consistent type scale, spacing rhythm, and color roles throughout. Vary section layouts so the page has rhythm — do not stack eight identical centered blocks.
+Every section must feel like part of the same designed system: consistent type scale, spacing rhythm, and color roles throughout. Vary section layouts so the page has rhythm.
 
-${SITE_RULES}`,
+${SITE_RULES}
+
+${SLOP_BANS}`,
     });
 
     const html = normalizeHtmlDocument(draftText);
@@ -330,9 +343,13 @@ ${SITE_RULES}`,
 ${rules}
 === END RULEBOOK ===
 
-Check specifically: typographic hierarchy and scale, spacing rhythm, section layout variety, copy quality (no filler, no AI cliché), color usage against the locked tokens, responsive behavior, and contrast/accessibility.
+Audit it against this ban list and fix every violation you find:
 
-Return ONLY the corrected complete HTML document — no commentary.
+${SLOP_BANS}
+
+Then check: typographic hierarchy and scale, spacing rhythm, section layout variety, copy specificity, color usage against the locked tokens, responsive behavior, and contrast.
+
+Keep every section that is already there. Return ONLY the corrected complete HTML document, no commentary.
 
 ${html}`,
       });
