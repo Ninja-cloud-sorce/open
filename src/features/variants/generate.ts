@@ -7,6 +7,12 @@ import { callLLM } from "@/lib/llm";
 import { normalizeHtmlDocument } from "@/lib/html";
 import { buildDiversityBrief, diversityPrompt } from "@/features/variants/diversity";
 import { COLLECTIONS } from "@/features/variants/collections";
+
+/** A variant's 0-9 position in its round, so the Diversity Engine can spread its
+ *  pools across all ten rather than drawing for each independently. */
+function variantSlot(lane: DesignLane, order: number): number {
+  return (lane === "IMPECCABLE" ? 0 : COLLECTIONS.length) + order;
+}
 import type { DesignLane } from "@/generated/prisma/enums";
 
 
@@ -342,7 +348,7 @@ Design direction: "${variant.styleName}" — ${variant.rationale ?? ""}
 Design tokens (bind these exactly — every section must share them):
 ${variant.designTokens}
 
-${diversityPrompt(buildDiversityBrief(variant.id))}
+${diversityPrompt(buildDiversityBrief(variant.roundId, variantSlot(variant.lane, variant.order)))}
 
 Build the COMPLETE site as one long page. Every section must feel like part of the same designed system: consistent type scale, spacing rhythm, and color roles throughout.
 
