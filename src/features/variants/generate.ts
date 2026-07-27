@@ -260,7 +260,14 @@ const SITE_RULES = `Output a COMPLETE self-contained HTML document starting with
 - Bind every color, font, and radius to the supplied design tokens as CSS custom properties on :root, then use var() everywhere. This is what keeps the site visually consistent.
 - Real, specific copy for this business. Never lorem ipsum, never "Your Company".
 - Where a photograph belongs, use https://picsum.photos/seed/<descriptive-slug>/<width>/<height> with a slug describing the shot. Give every image an explicit width/height and object-fit: cover.
-- Semantic HTML, responsive down to 375px, accessible contrast.`;
+- Semantic HTML, responsive down to 375px, accessible contrast.
+
+LAYOUT SAFETY - the page is judged at 1440px wide, and these break it outright:
+- No text column narrower than 260px at any breakpoint. Multi-column grids must use minmax() with a floor of at least 260px, never fixed pixel widths or bare 1fr in a narrow container.
+- Body copy stays between 45 and 80 characters per line. If a column cannot hold that, use fewer columns.
+- Never set a fixed width or height on a text container. Let content determine height.
+- Nothing may overflow the viewport horizontally. Long words, tables, and code blocks scroll inside their own container, not the page.
+- Test every grid mentally at 1440px, 1024px, and 375px before emitting it.`;
 
 /**
  * A compact ban list sitting directly beside the task. The lane rulebooks carry

@@ -24,8 +24,23 @@ export function normalizeHtmlDocument(text: string): string {
 
   if (html && !/^<!DOCTYPE/i.test(html)) html = `<!DOCTYPE html>\n${html}`;
 
+  html = stripEmDashes(html);
+
   assertRenderable(html);
   return html;
+}
+
+/**
+ * The rulebook bans the em-dash outright and the model ignores it anyway — one
+ * audited page carried twenty-one. Prompting is the wrong tool for a rule this
+ * mechanical, so enforce it here. Only visible text is touched; <style> and
+ * <script> are left alone, where the character can be load-bearing.
+ */
+export function stripEmDashes(html: string): string {
+  return html.replace(
+    /<(style|script)\b[\s\S]*?<\/\1>|[—–]/gi,
+    (match) => (match.length > 1 ? match : "-")
+  );
 }
 
 /** Throws when a document would render blank or visibly broken. */
