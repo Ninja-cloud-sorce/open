@@ -29,8 +29,18 @@ const LANE_LABEL: Record<DesignLane, string> = {
   TASTE_SKILL: "Taste-Skill V2",
 };
 
-/** Cap per lane so the rulebooks inform the prompt without dominating the context window. */
-const RULES_CHAR_BUDGET = 40000;
+/**
+ * Two budgets, because the two calls have very different ceilings.
+ *
+ * HTML generation runs long (OpenRouter, million-token context) and benefits
+ * from the whole rulebook. Spec generation runs short and routes to Groq, whose
+ * per-request limit a 40K-char rulebook exceeds outright — that produced a 413
+ * that killed an entire lane while the other, with a smaller rulebook, passed.
+ * The spec call only emits design tokens, so it needs the aesthetic guidance,
+ * not the full catalogue of forbidden patterns.
+ */
+const SITE_RULES_BUDGET = 40000;
+const SPEC_RULES_BUDGET = 9000;
 
 /**
  * The Taste-Skill rulebook is ~87K characters and its most load-bearing sections
@@ -71,16 +81,17 @@ function prioritizeSections(markdown: string, budget: number): string {
   return kept.join("\n");
 }
 
-const rulesCache = new Map<DesignLane, string>();
+const rulesCache = new Map<string, string>();
 
 /** Loads the real skill rulebooks shipped in this repo, so each lane generates
  *  under genuinely different design guidance rather than invented pseudo-rules. */
-async function loadLaneRules(lane: DesignLane): Promise<string> {
-  const cached = rulesCache.get(lane);
+async function loadLaneRules(lane: DesignLane, budget: number): Promise<string> {
+  const cacheKey = `${lane}:${budget}`;
+  const cached = rulesCache.get(cacheKey);
   if (cached) return cached;
 
   const files = SKILL_FILES[lane];
-  const budgetPerFile = Math.floor(RULES_CHAR_BUDGET / files.length);
+  const budgetPerFile = Math.floor(budget / files.length);
 
   const parts: string[] = [];
   for (const relative of files) {
@@ -95,7 +106,7 @@ async function loadLaneRules(lane: DesignLane): Promise<string> {
   }
 
   const joined = parts.join("\n\n---\n\n");
-  rulesCache.set(lane, joined);
+  rulesCache.set(cacheKey, joined);
   return joined;
 }
 
