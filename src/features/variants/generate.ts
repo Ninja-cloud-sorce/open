@@ -7,6 +7,8 @@ import { callLLM } from "@/lib/llm";
 import { normalizeHtmlDocument } from "@/lib/html";
 import { buildDiversityBrief, diversityPrompt } from "@/features/variants/diversity";
 import { COLLECTIONS } from "@/features/variants/collections";
+import { analyzeIntent, intentPrompt } from "@/features/variants/intent";
+import { scoreSpecs, failingIndices } from "@/features/variants/taste";
 import type { DesignLane } from "@/generated/prisma/enums";
 
 /** A variant's 0-9 position in its round, so the Diversity Engine can spread its
@@ -45,6 +47,38 @@ const SPEC_RULES_BUDGET = 9000;
 const MINIMAL_RULES_BUDGET = 2500;
 
 /**
+ * A craft layer shared by both lanes.
+ *
+ * The lane rulebooks argue about design *philosophy* — what a page should be.
+ * These cover micro-craft: easing curves, press feedback, transform origins,
+ * optical tracking. That is orthogonal to the Impeccable/Taste-Skill split, so
+ * it applies to both rather than becoming a third lane, and it is the level at
+ * which generated pages read as generic even when their layout is interesting.
+ *
+ * Budgets are weighted, not split evenly: the design-engineering file is almost
+ * entirely CSS we can emit, while the Apple material is mostly gesture and
+ * spring work that does not survive translation to a static document.
+ */
+const CRAFT_FILES: { path: string; budget: number }[] = [
+  // The process rulebook: understand, then decide direction, then build. Small
+  // enough to include whole, so it leads the craft layer.
+  { path: "elite-design-intelligence/SKILL.md", budget: 7000 },
+  { path: "emil-design-eng/SKILL.md", budget: 12000 },
+  { path: "apple-design/SKILL.md", budget: 6000 },
+];
+
+/** These sections translate directly to single-file CSS; the rest of those
+ *  skills is React, gesture, and spring material we cannot emit here. */
+const CRAFT_PRIORITY = [
+  /easing|how fast should it be|animation decision/i,
+  /component building|buttons must feel|never animate from scale/i,
+  /transform mastery|transform-origin/i,
+  /typography/i,
+  /performance rules|only animate transform/i,
+  /accessibility|reduced-motion/i,
+];
+
+/**
  * The Taste-Skill rulebook is ~87K characters and its most load-bearing sections
  * — the forbidden-pattern list and the bias corrections — sit near the end. A
  * plain head-slice dropped them entirely, which is exactly why output still read
@@ -58,14 +92,18 @@ const PRIORITY_HEADINGS = [
 ];
 
 /** Splits on top-level `## ` headings and packs priority sections in first. */
-function prioritizeSections(markdown: string, budget: number): string {
+function prioritizeSections(
+  markdown: string,
+  budget: number,
+  priorities: RegExp[] = PRIORITY_HEADINGS
+): string {
   const chunks = markdown.split(/\n(?=## )/);
   if (chunks.length < 2) return markdown.slice(0, budget);
 
   const rank = (chunk: string) => {
     const heading = chunk.slice(0, 120);
-    const index = PRIORITY_HEADINGS.findIndex((pattern) => pattern.test(heading));
-    return index === -1 ? PRIORITY_HEADINGS.length : index;
+    const index = priorities.findIndex((pattern) => pattern.test(heading));
+    return index === -1 ? priorities.length : index;
   };
 
   // Stable sort by rank keeps each tier in its authored order.
@@ -109,6 +147,27 @@ async function loadLaneRules(lane: DesignLane, budget: number): Promise<string> 
 
   const joined = parts.join("\n\n---\n\n");
   rulesCache.set(cacheKey, joined);
+  return joined;
+}
+
+/** Loads the shared craft layer. Cached like the lane rules; a missing file
+ *  degrades guidance without breaking generation. */
+async function loadCraftRules(): Promise<string> {
+  const cached = rulesCache.get("craft");
+  if (cached !== undefined) return cached;
+
+  const parts: string[] = [];
+  for (const { path: relative, budget } of CRAFT_FILES) {
+    try {
+      const contents = await readFile(path.join(SKILLS_DIR, relative), "utf8");
+      parts.push(prioritizeSections(contents, budget, CRAFT_PRIORITY));
+    } catch {
+      // Craft guidance is additive; without it the lane rulebooks still apply.
+    }
+  }
+
+  const joined = parts.join("\n\n---\n\n");
+  rulesCache.set("craft", joined);
   return joined;
 }
 
@@ -174,6 +233,44 @@ async function mapWithConcurrency<T>(items: T[], limit: number, task: (item: T) 
 }
 
 /**
+ * Scores the lane's directions and gives the weak ones exactly one more attempt.
+ *
+ * Bounded on purpose. Regenerating "until every score passes" can never
+ * terminate against a model that plateaus, and each attempt spends free-tier
+ * quota that the site builds need. A replacement is kept only if it actually
+ * scores better than what it replaced.
+ */
+async function applyTasteGate(
+  specs: SpecItem[],
+  designRead: string,
+  regenerate: () => Promise<SpecItem[]>
+): Promise<SpecItem[]> {
+  const scores = await scoreSpecs(specs, designRead);
+  if (scores.length === 0) return specs;
+
+  const failing = failingIndices(scores);
+  if (failing.length === 0) return specs;
+
+  let replacements: SpecItem[];
+  try {
+    replacements = await regenerate();
+  } catch {
+    return specs; // A failed retry must never cost us the originals.
+  }
+
+  const rescored = await scoreSpecs(replacements, designRead);
+  const improved = [...specs];
+  for (const index of failing) {
+    const before = scores.find((s) => s.index === index)?.overall ?? 0;
+    const after = rescored.find((s) => s.index === index)?.overall ?? 0;
+    const candidate = replacements[index];
+    // No rescore available means we cannot prove an improvement, so keep the original.
+    if (candidate?.designTokens && after > before) improved[index] = candidate;
+  }
+  return improved;
+}
+
+/**
  * Stage A — this lane's interpretation of each of the five fixed design
  * languages. Order is load-bearing: index i is COLLECTIONS[i], which is how the
  * two lanes pair up in the split view.
@@ -181,17 +278,18 @@ async function mapWithConcurrency<T>(items: T[], limit: number, task: (item: T) 
 async function generateLaneSpecs(
   lane: DesignLane,
   project: ProjectContext,
+  designRead: string,
   parentTokens?: string | null,
   parentStyle?: string | null
 ): Promise<SpecItem[]> {
   try {
-    return await requestLaneSpecs(lane, project, SPEC_RULES_BUDGET, parentTokens, parentStyle);
+    return await requestLaneSpecs(lane, project, designRead, SPEC_RULES_BUDGET, parentTokens, parentStyle);
   } catch (error) {
     // A token-limit rejection is deterministic: retrying the same prompt fails
     // identically. Shed rulebook context and try once more rather than losing
     // the entire lane, which is what happened when Groq returned 413.
     if (!isTokenLimitError(error)) throw error;
-    return requestLaneSpecs(lane, project, MINIMAL_RULES_BUDGET, parentTokens, parentStyle);
+    return requestLaneSpecs(lane, project, designRead, MINIMAL_RULES_BUDGET, parentTokens, parentStyle);
   }
 }
 
@@ -203,6 +301,7 @@ function isTokenLimitError(error: unknown): boolean {
 async function requestLaneSpecs(
   lane: DesignLane,
   project: ProjectContext,
+  designRead: string,
   budget: number,
   parentTokens?: string | null,
   parentStyle?: string | null
@@ -225,7 +324,9 @@ ${rules}
 === END RULEBOOK ===
 
 Brief:
-${projectBrief(project)}${refining}
+${projectBrief(project)}
+
+${designRead}${refining}
 
 Below are five fixed design languages. Produce YOUR rulebook's interpretation of each one, applied to this specific business.
 
@@ -316,6 +417,21 @@ const SLOP_BANS = `These are the signatures that make a page read as AI-generate
 - No poetic section labels ("Field notes", "From the bench", "On our desks"). Plain functional labels.
 - Vary the rhythm between sections: alternate background weight, alignment, and density. Never stack eight centered blocks.`;
 
+/**
+ * The craft rules most likely to be skipped, restated at the point of use. The
+ * full rulebook carries the reasoning; this is the part that must survive.
+ */
+const CRAFT_CHECKLIST = `CRAFT - the details that separate a designed page from a generated one. Every one of these is checkable in the CSS you emit:
+- Define custom easing tokens and use them everywhere. The built-in keywords are too weak: --ease-out: cubic-bezier(0.23, 1, 0.32, 1); --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1).
+- Never use ease-in on an interaction. It delays the moment the user is watching most closely.
+- Every pressable element gets transform: scale(0.97) on :active with a 160ms transition. Buttons must feel like they are listening.
+- Every interactive element gets a visible :hover and a real :focus-visible ring. No element changes state without a transition.
+- Transition specific properties, never "all". Animate only transform and opacity.
+- Nothing enters from scale(0) or opacity alone. Start at scale(0.95) with opacity 0.
+- UI transitions stay under 300ms. Hovers 150-200ms, presses 100-160ms.
+- Letter-spacing is size-specific: negative on display headings (about -0.02em), near zero on body. Line-height tight on large text, looser on body.
+- Wrap all motion in @media (prefers-reduced-motion: reduce) and disable it there.`;
+
 /** Stage B (preview) — a complete site per variant, on an architecture unique to
  *  it. Previously this asked for only a hero plus one band against a fixed
  *  eight-section list, which is why every direction came out the same shape. */
@@ -324,9 +440,13 @@ async function generatePreview(
   project: ProjectContext,
   spec: SpecItem,
   roundSeed: string,
-  variantIndex: number
+  variantIndex: number,
+  designRead: string
 ): Promise<string> {
-  const rules = await loadLaneRules(lane, SITE_RULES_BUDGET);
+  const [rules, craft] = await Promise.all([
+    loadLaneRules(lane, SITE_RULES_BUDGET),
+    loadCraftRules(),
+  ]);
   const architecture = diversityPrompt(buildDiversityBrief(roundSeed, variantIndex));
   const collection = COLLECTIONS.find((c) => c.name === spec.styleName);
 
@@ -340,6 +460,8 @@ ${rules}
 Brief:
 ${projectBrief(project)}
 
+${designRead}
+
 Design language: "${spec.styleName}"
 ${collection ? `${collection.brief}\n` : ""}Your reading of it: ${spec.rationale}
 Design tokens (bind these exactly, every section shares them):
@@ -351,7 +473,13 @@ Build the COMPLETE site as one long page. Every section must read as part of one
 
 ${SITE_RULES}
 
-${SLOP_BANS}`,
+=== CRAFT LAYER (applies regardless of design language) ===
+${craft}
+=== END CRAFT LAYER ===
+
+${SLOP_BANS}
+
+${CRAFT_CHECKLIST}`,
   });
   return normalizeHtmlDocument(text);
 }
@@ -375,7 +503,12 @@ export async function expandToFullSite(variantId: string) {
 
   try {
     const project = toContext(variant.round.project);
-    const rules = await loadLaneRules(variant.lane, SITE_RULES_BUDGET);
+    const [rules, craft, intent] = await Promise.all([
+      loadLaneRules(variant.lane, SITE_RULES_BUDGET),
+      loadCraftRules(),
+      // Cached against the brief, so a rebuild reuses the round's analysis.
+      analyzeIntent(project, projectBrief(project)),
+    ]);
 
     const draftText = await callLLM({
       contents: `You are a design director working under this rulebook:
@@ -387,6 +520,8 @@ ${rules}
 Brief:
 ${projectBrief(project)}
 
+${intentPrompt(intent)}
+
 Design direction: "${variant.styleName}" — ${variant.rationale ?? ""}
 Design tokens (bind these exactly — every section must share them):
 ${variant.designTokens}
@@ -397,7 +532,13 @@ Build the COMPLETE site as one long page. Every section must feel like part of t
 
 ${SITE_RULES}
 
-${SLOP_BANS}`,
+=== CRAFT LAYER (applies regardless of design language) ===
+${craft}
+=== END CRAFT LAYER ===
+
+${SLOP_BANS}
+
+${CRAFT_CHECKLIST}`,
     });
 
     const html = normalizeHtmlDocument(draftText);
@@ -418,7 +559,11 @@ Audit it against this ban list and fix every violation you find:
 
 ${SLOP_BANS}
 
-Then check: typographic hierarchy and scale, spacing rhythm, section layout variety, copy specificity, color usage against the locked tokens, responsive behavior, and contrast.
+Then bring it up to this craft standard, adding what is missing:
+
+${CRAFT_CHECKLIST}
+
+Finally check: typographic hierarchy and scale, spacing rhythm, section layout variety, copy specificity, color usage against the locked tokens, responsive behavior, and contrast.
 
 Keep every section that is already there. Return ONLY the corrected complete HTML document, no commentary.
 
@@ -468,6 +613,12 @@ export async function generateRound(roundId: string) {
 
   await db.variant.updateMany({ where: { roundId }, data: { status: "GENERATING", error: null } });
 
+  // Stage 1 runs once for the whole round: the design read is a property of the
+  // brief, not of any one direction, so paying for it per variant would be ten
+  // times the cost for identical output.
+  const intent = await analyzeIntent(project, projectBrief(project));
+  const designRead = intentPrompt(intent);
+
   // Lanes run sequentially, and previews within a lane run in a small pool —
   // both to stay inside the free tier's per-minute request quota.
   for (const lane of lanes) {
@@ -479,7 +630,13 @@ export async function generateRound(roundId: string) {
 
       let specs: SpecItem[] = [];
       try {
-        specs = await generateLaneSpecs(lane, project, parent?.designTokens, parent?.styleName);
+        specs = await generateLaneSpecs(
+          lane,
+          project,
+          designRead,
+          parent?.designTokens,
+          parent?.styleName
+        );
       } catch (error) {
         await db.variant.updateMany({
           where: { roundId, lane },
@@ -487,6 +644,12 @@ export async function generateRound(roundId: string) {
         });
         return;
       }
+
+      // Stage 5: score the directions while they are still paragraphs. One
+      // scoring call, one regeneration pass for whatever fails, then move on.
+      specs = await applyTasteGate(specs, designRead, () =>
+        generateLaneSpecs(lane, project, designRead, parent?.designTokens, parent?.styleName)
+      );
 
       await mapWithConcurrency(
         variants.map((variant, index) => ({ variant, index })),
@@ -512,7 +675,8 @@ export async function generateRound(roundId: string) {
               project,
               spec,
               roundId,
-              variantSlot(lane, variant.order)
+              variantSlot(lane, variant.order),
+              designRead
             );
             await db.variant.update({
               where: { id: variant.id },

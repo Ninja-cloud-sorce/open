@@ -18,7 +18,12 @@
       "Bash(echo \"TSC EXIT: $?\")",
       "Bash(curl -s --max-time 120 -o /dev/null -w \"projects: %{http_code}\\\\n\" http://localhost:3000/projects)",
       "Bash(sort -nrk 3)",
-      "Bash(awk '{printf \"%s%% %s\\\\n\", $3, substr\\($0, index\\($0,$11\\), 90\\)}')"
+      "Bash(awk '{printf \"%s%% %s\\\\n\", $3, substr\\($0, index\\($0,$11\\), 90\\)}')",
+      "Bash(npx --yes skills@latest add emilkowalski/skills)",
+      "Bash(grep -n '^#\\\\{2,3\\\\} ' /private/tmp/claude-501/-Users-praful-Desktop-open/bf9b122a-8203-432d-9d0e-92aea1842b25/scratchpad/emil/skills/emil-design-eng/SKILL.md)",
+      "Bash(grep -n '^#\\\\{2,3\\\\} ' /private/tmp/claude-501/-Users-praful-Desktop-open/bf9b122a-8203-432d-9d0e-92aea1842b25/scratchpad/emil/skills/apple-design/SKILL.md)",
+      "Bash(grep -n \"analyzeIntent\\\\|scoreSpecs\\\\|failingIndices\\\\|designRead$\\\\|designRead,\" src/features/variants/generate.ts)",
+      "Bash(awk -F: '$1>440 && $1<560')"
     ],
     "additionalDirectories": [
       "/Users/praful/Desktop/open/src/app"
